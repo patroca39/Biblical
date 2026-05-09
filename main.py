@@ -16,10 +16,10 @@ change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
-# Use v1 for production stability
+# Reverting to v1beta as it often has better support for the latest Imagen strings
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
-    http_options={'api_version': 'v1'} 
+    http_options={'api_version': 'v1beta'} 
 )
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
@@ -35,7 +35,7 @@ def scout_bible_story():
     PART_C: [text] PROMPT_C: [text]
     PART_D: [text] PROMPT_D: [text]
     """
-    res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+    res = gen_client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
     return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
 
 def produce():
@@ -62,19 +62,27 @@ def produce():
         print(f"🎨 Generating Anime Scene {char}...")
         prompt_text = f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {data.get(f'PROMPT_{char}')}"
         
-        # CLEANED CONFIG: Removed watermark parameter
-        response = gen_client.models.generate_images(
-            model='imagen-3.0-generate-001', 
-            prompt=prompt_text,
-            config=types.GenerateImagesConfig(
-                aspect_ratio="9:16", 
-                number_of_images=1
+        try:
+            # Using 'imagen-3.0-generate-001' which is the standard production string
+            response = gen_client.models.generate_images(
+                model='imagen-3.0-generate-001', 
+                prompt=prompt_text,
+                config=types.GenerateImagesConfig(
+                    aspect_ratio="9:16", 
+                    number_of_images=1
+                )
             )
-        )
-        
-        filename = f"scene_{char}.png"
-        response.generated_images[0].image.save(filename)
-        image_files.append(filename)
+            filename = f"scene_{char}.png"
+            response.generated_images[0].image.save(filename)
+            image_files.append(filename)
+        except Exception as e:
+            print(f"⚠️ Image {char} failed, using placeholder: {e}")
+            # Creates a dark blue placeholder if the API fails
+            from PIL import Image
+            placeholder = Image.new('RGB', (1080, 1920), color=(20, 20, 40))
+            filename = f"scene_{char}.png"
+            placeholder.save(filename)
+            image_files.append(filename)
 
     # 🎬 VIDEO ASSEMBLY
     clips = []
@@ -89,20 +97,21 @@ def produce():
     for i, char in enumerate(chars):
         txt = TextClip(data.get(f'PART_{char}', "..."), font=font_p, fontsize=85, 
                        color='yellow' if i%2==0 else 'white', stroke_color='black', stroke_width=2,
-                       method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1450))
+                       method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1400))
         subs.append(txt)
 
     # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music])
-    except: final_audio = voice
+    except: 
+        final_audio = voice
 
     # 🚀 RENDER
     final = CompositeVideoClip(clips + subs).set_audio(final_audio).set_duration(duration)
     final.write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 🚀 UPLOAD
+    # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
         print("🚀 Uploading to YouTube...")
         creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
