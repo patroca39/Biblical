@@ -20,14 +20,28 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
+# Initialize Clients
+gen_client = genai.Client(
+    api_key=os.getenv('GEMINI_API_KEY'), 
+    http_options={'api_version': 'v1beta'} 
+)
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting anime bible story...")
-    prompt = f"Today is {datetime.date.today()}. Select a dramatic Bible story. Write a narration of exactly 75 words. Provide 4 IMAGE PROMPTS in 'Epic Shonen Anime Style'. FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] PART_A: [text] PROMPT_A: [text] PART_B: [text] PROMPT_B: [text] PART_C: [text] PROMPT_C: [text] PART_D: [text] PROMPT_D: [text]"
+    prompt = f"""
+    Today is {datetime.date.today()}. Select a dramatic Bible story. 
+    Write a narration of exactly 75 words.
+    Provide 4 IMAGE PROMPTS in 'Epic Shonen Anime Style'.
+    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
+    PART_A: [text] PROMPT_A: [text]
+    PART_B: [text] PROMPT_B: [text]
+    PART_C: [text] PROMPT_C: [text]
+    PART_D: [text] PROMPT_D: [text]
+    """
     try:
+        # Using 2.5-flash as confirmed working in your other repos
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
     except Exception as e:
@@ -43,15 +57,16 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
+    # Stable Model ID: Leonardo Diffusion XL
     payload = {
         "height": 1024,
         "width": 576,
-        "modelId": "e5a30e3b-ce09-4f95-bc3a-8d0a2046639c", # Leonardo Vision XL
-        "prompt": f"Shonen Anime Style, cinematic lighting, high resolution, {prompt}",
+        "modelId": "b24e92ad-9626-45ef-b3ad-5420377e38a1", 
+        "prompt": f"Epic Shonen Anime Style, cinematic lighting, {prompt}",
         "num_images": 1,
         "alchemy": True,
         "presetStyle": "ANIME",
-        "photoReal": False
+        "scheduler": "LEONARDO"
     }
 
     try:
@@ -59,7 +74,7 @@ def generate_leonardo_image(prompt, filename):
         res_json = response.json()
         
         if 'sdGenerationJob' not in res_json:
-            print(f"❌ API Error (Check balance/key): {res_json}")
+            print(f"❌ Leonardo API error: {res_json}")
             return False
             
         gen_id = res_json['sdGenerationJob']['generationId']
@@ -85,7 +100,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO
+    # 🎙️ AUDIO GENERATION
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -97,63 +112,72 @@ def produce():
         )
         with open("voice.mp3", "wb") as f:
             for chunk in audio_gen: f.write(chunk)
-        voice = AudioFileClip("voice.mp3")
-        duration = voice.duration
+        voice_clip = AudioFileClip("voice.mp3")
+        duration = voice_clip.duration
+        voice = voice_clip
     except Exception as e:
         print(f"⚠️ Voice failed: {e}")
 
     p_dur = duration / 4 
 
-    # 🎨 IMAGES
+    # 🎨 IMAGE GENERATION
     image_files = []
     for char in ['A', 'B', 'C', 'D']:
         fname = f"scene_{char}.png"
-        if not generate_leonardo_image(data.get(f'PROMPT_{char}'), fname):
-            print(f"⚠️ Using fallback for scene {char}")
+        prompt = data.get(f'PROMPT_{char}')
+        if not generate_leonardo_image(prompt, fname):
+            # Fallback to dark background if render fails
             PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
         image_files.append(fname)
 
-    # 🎬 ASSEMBLY
-    print(f"🎬 Compiling {duration:.1f}s anime broadcast...")
+    # 🎬 VIDEO ASSEMBLY
+    print(f"🎬 Compiling {duration:.1f}s video...")
     final_clips = []
+    
     for i, img in enumerate(image_files):
-        # Background layer
-        bg = (ImageClip(img)
-              .set_duration(p_dur)
-              .set_start(i * p_dur)
-              .resize(height=1920)
-              .set_position('center')
-              .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
-        final_clips.append(bg)
-        
-        # Subtitle layer
-        raw_text = data.get(f'PART_{["A","B","C","D"][i]}', "...")
-        txt = (TextClip(raw_text[:110], font="THEBOLDFONT-FREEVERSION.ttf", fontsize=75, 
-                        color='yellow' if i % 2 == 0 else 'white', 
-                        stroke_color='black', stroke_width=2,
-                        method='caption', size=(850, 450))
-               .set_duration(p_dur)
-               .set_start(i * p_dur)
-               .set_position(('center', 1350)))
-        final_clips.append(txt)
+        try:
+            # 1. Background Layer
+            bg = (ImageClip(img)
+                  .set_duration(p_dur)
+                  .set_start(i * p_dur)
+                  .resize(height=1920)
+                  .set_position('center')
+                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
+            final_clips.append(bg)
+            
+            # 2. Subtitle Layer (Layered on top)
+            char_key = ['A', 'B', 'C', 'D'][i]
+            raw_text = data.get(f'PART_{char_key}', "...")
+            safe_text = (raw_text[:110] + '...') if len(raw_text) > 110 else raw_text
+            
+            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=75, 
+                            color='yellow' if i % 2 == 0 else 'white', 
+                            stroke_color='black', stroke_width=2,
+                            method='caption', size=(850, 450))
+                   .set_duration(p_dur)
+                   .set_start(i * p_dur)
+                   .set_position(('center', 1350)))
+            final_clips.append(txt)
+        except Exception as e:
+            print(f"⚠️ Clip {i} assembly error: {e}")
 
-    # 🎛️ MIX
+    # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music]) if voice else music
     except:
         final_audio = voice
 
-    # 🚀 RENDER
+    # 🚀 FINAL EXPORT
     final_video = CompositeVideoClip(final_clips, size=(1080, 1920))
     if final_audio:
         final_video = final_video.set_audio(final_audio)
     
     final_video.set_duration(duration).write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 🚀 YOUTUBE
+    # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
-        print("🚀 Uploading to YouTube...")
+        print("🚀 Starting YouTube upload...")
         try:
             creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
@@ -161,11 +185,18 @@ def produce():
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=creds)
-            body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime", 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+            body = {
+                'snippet': {
+                    'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts", 
+                    'categoryId': '22'
+                }, 
+                'status': {'privacyStatus': 'public'}
+            }
             youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
             print("✅ SUCCESS!")
         except Exception as e:
-            print(f"❌ YouTube upload failed: {e}")
+            print(f"❌ YouTube error: {e}")
 
 if __name__ == "__main__":
     produce()
