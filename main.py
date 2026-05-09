@@ -11,7 +11,6 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
-from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
 from moviepy.audio.fx.all import audio_loop
@@ -19,17 +18,16 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# Initialize Clients
+# Initialize Gemini Client
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1beta'} 
 )
-client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
+ELEVEN_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting classical bible story...")
-    # 🚨 STYLE FIX: Swapped Anime instructions for Classical/Storybook Art. Kept Character Lock.
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
@@ -61,7 +59,6 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 STYLE FIX: Base prompt changed to Renaissance/Traditional. Negative prompt blocks Anime.
     payload = {
         "height": 1024,
         "width": 576,
@@ -80,7 +77,6 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
-        # Poll for completion
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -101,7 +97,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Aggressive Retry Logic
+    # 🎙️ AUDIO GENERATION: Direct HTTP Call (No hidden errors)
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -109,38 +105,47 @@ def produce():
     for attempt in range(3):
         try:
             print(f"  ...Audio Attempt {attempt + 1}/3")
-            audio_gen = client_11.text_to_speech.convert(
-                text=data.get('MONOLOGUE'), 
-                voice_id="SAxJUlDKRc79XAyeWyMu", 
-                model_id="eleven_multilingual_v2"
-            )
+            url = "https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu"
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": ELEVEN_API_KEY
+            }
+            payload = {
+                "text": data.get('MONOLOGUE'),
+                "model_id": "eleven_multilingual_v2",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
             
-            with open("voice.mp3", "wb") as f:
-                for chunk in audio_gen:
-                    if chunk:
-                        f.write(chunk)
+            audio_res = requests.post(url, json=payload, headers=headers)
             
-            voice_clip = AudioFileClip("voice.mp3")
-            
-            # Reject phantom/short files (75 words should be >15s)
-            if voice_clip.duration < 15:
-                print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
-                voice_clip.close() 
-                time.sleep(3)
-                continue
+            if audio_res.status_code == 200:
+                with open("voice.mp3", "wb") as f:
+                    f.write(audio_res.content)
                 
-            # Success
-            duration = voice_clip.duration
-            voice = voice_clip
-            print(f"✅ Voice generated successfully: {duration:.1f}s")
-            break
-            
+                voice_clip = AudioFileClip("voice.mp3")
+                
+                if voice_clip.duration < 15:
+                    print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
+                    voice_clip.close()
+                    time.sleep(3)
+                    continue
+                    
+                duration = voice_clip.duration
+                voice = voice_clip
+                print(f"✅ Voice generated successfully: {duration:.1f}s")
+                break
+            else:
+                # This will print the EXACT reason ElevenLabs is failing!
+                print(f"⚠️ ElevenLabs API Error {audio_res.status_code}: {audio_res.text}")
+                time.sleep(3)
+                
         except Exception as e:
             print(f"⚠️ ElevenLabs network error: {e}")
             time.sleep(3)
             
     if not voice:
-        print("❌ All ElevenLabs attempts failed. Proceeding with 30s background track.")
+        print("❌ All ElevenLabs attempts failed. Proceeding with background track.")
 
     p_dur = duration / 4 
 
@@ -159,7 +164,6 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
-            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
@@ -168,7 +172,6 @@ def produce():
                   .resize(lambda t: 1 + 0.04 * t))
             final_clips.append(bg)
             
-            # Subtitle Safe Zone Fix
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
             safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
@@ -179,16 +182,17 @@ def produce():
                             method='caption', size=(850, 400))
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1150))) # Placed high enough for Shorts UI
+                   .set_position(('center', 1150))) 
             final_clips.append(txt)
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
 
-    # 🎛️ AUDIO MIX
+    # 🎛️ AUDIO MIX (Includes your bible_bgm.m4a fallback!)
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music]) if voice else music
-    except:
+    except Exception as e:
+        print(f"⚠️ Music mix error: {e}")
         final_audio = voice
 
     # 🚀 FINAL EXPORT
