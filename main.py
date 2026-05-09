@@ -41,7 +41,6 @@ def scout_bible_story():
     PART_D: [text] PROMPT_D: [text]
     """
     try:
-        # Using 2.5-flash as confirmed working in your other repos
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
     except Exception as e:
@@ -100,23 +99,46 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION
+    # 🎙️ AUDIO GENERATION: Aggressive Retry Logic
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
-    try:
-        audio_gen = client_11.text_to_speech.convert(
-            text=data.get('MONOLOGUE'), 
-            voice_id="SAxJUlDKRc79XAyeWyMu", 
-            model_id="eleven_multilingual_v2"
-        )
-        with open("voice.mp3", "wb") as f:
-            for chunk in audio_gen: f.write(chunk)
-        voice_clip = AudioFileClip("voice.mp3")
-        duration = voice_clip.duration
-        voice = voice_clip
-    except Exception as e:
-        print(f"⚠️ Voice failed: {e}")
+    
+    for attempt in range(3):
+        try:
+            print(f"  ...Audio Attempt {attempt + 1}/3")
+            audio_gen = client_11.text_to_speech.convert(
+                text=data.get('MONOLOGUE'), 
+                voice_id="SAxJUlDKRc79XAyeWyMu", 
+                model_id="eleven_multilingual_v2"
+            )
+            
+            with open("voice.mp3", "wb") as f:
+                for chunk in audio_gen:
+                    if chunk:
+                        f.write(chunk)
+            
+            voice_clip = AudioFileClip("voice.mp3")
+            
+            # Reject phantom/short files (75 words should be >15s)
+            if voice_clip.duration < 15:
+                print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
+                voice_clip.close() # Free memory
+                time.sleep(3)
+                continue
+                
+            # Success
+            duration = voice_clip.duration
+            voice = voice_clip
+            print(f"✅ Voice generated successfully: {duration:.1f}s")
+            break
+            
+        except Exception as e:
+            print(f"⚠️ ElevenLabs network error: {e}")
+            time.sleep(3)
+            
+    if not voice:
+        print("❌ All ElevenLabs attempts failed. Proceeding with 30s background track.")
 
     p_dur = duration / 4 
 
@@ -145,7 +167,7 @@ def produce():
                   .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
             final_clips.append(bg)
             
-            # 2. Subtitle Layer (Layered on top)
+            # 2. Subtitle Layer
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
             safe_text = (raw_text[:110] + '...') if len(raw_text) > 110 else raw_text
