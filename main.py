@@ -11,7 +11,6 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
-from google.genai import types
 from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
@@ -30,7 +29,6 @@ LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting Fate-style anime bible story...")
-    # 🚨 FIX: Enforcing Ufotable/Fate Series style and strict character consistency
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
@@ -58,15 +56,13 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 FIX: Using 'Anime Pastel Dream' model and turning Alchemy OFF. 
-    # This is the safest way to bypass the API version error.
+    # 🚨 NAKED PAYLOAD FIX: Removed 'modelId' and 'alchemy'. 
+    # This forces Leonardo to use its universal default engine, completely bypassing API version conflicts.
     payload = {
         "height": 1024,
         "width": 576,
-        "modelId": "ac614f96-1082-4ad2-ad11-7f0644597a85", # Anime Pastel Dream
-        "prompt": f"Ufotable studio, Fate series anime art style, high contrast, cinematic lighting, {prompt}",
-        "num_images": 1,
-        "alchemy": False # Alchemy disabled to ensure API v1 compatibility
+        "prompt": f"Ufotable studio, Fate series anime art style, high contrast, cinematic lighting, masterpiece, highly detailed, {prompt}",
+        "num_images": 1
     }
 
     try:
@@ -79,7 +75,7 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
-        # Poll for completion
+        # Poll for completion (Wait up to 90 seconds)
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -100,7 +96,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION
+    # 🎙️ AUDIO GENERATION: Aggressive Retry Logic
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -116,27 +112,30 @@ def produce():
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
-                    if chunk: f.write(chunk)
+                    if chunk:
+                        f.write(chunk)
             
             voice_clip = AudioFileClip("voice.mp3")
             
+            # Reject phantom/short files (75 words should be >15s)
             if voice_clip.duration < 15:
                 print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
-                voice_clip.close()
+                voice_clip.close() # Free memory
                 time.sleep(3)
                 continue
                 
+            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
             break
             
         except Exception as e:
-            print(f"⚠️ ElevenLabs error: {e}")
+            print(f"⚠️ ElevenLabs network error: {e}")
             time.sleep(3)
             
     if not voice:
-        print("❌ ElevenLabs quota likely empty. Proceeding with 30s background track.")
+        print("❌ All ElevenLabs attempts failed. Proceeding with 30s background track.")
 
     p_dur = duration / 4 
 
@@ -146,6 +145,7 @@ def produce():
         fname = f"scene_{char}.png"
         prompt = data.get(f'PROMPT_{char}')
         if not generate_leonardo_image(prompt, fname):
+            # Fallback to dark background if render fails
             PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
         image_files.append(fname)
 
@@ -155,14 +155,16 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
+            # 1. Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) 
+                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
             final_clips.append(bg)
             
+            # 2. Subtitle Layer (Refined Positioning & Font Size)
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
             safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
@@ -205,7 +207,7 @@ def produce():
             body = {
                 'snippet': {
                     'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
-                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts #fate", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts", 
                     'categoryId': '22'
                 }, 
                 'status': {'privacyStatus': 'public'}
