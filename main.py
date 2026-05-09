@@ -3,7 +3,7 @@ import json
 import datetime
 import time
 import requests
-import PIL.Image
+import urllib.parse
 from google import genai
 from google.genai import types
 from elevenlabs.client import ElevenLabs
@@ -13,35 +13,43 @@ from moviepy.audio.fx.all import audio_loop
 
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
-# Reverting to v1beta as it often has better support for the latest Imagen strings
-gen_client = genai.Client(
-    api_key=os.getenv('GEMINI_API_KEY'), 
-    http_options={'api_version': 'v1beta'} 
-)
+# Initialize Clients
+# We use gemini-1.5-flash for the script to stay well within free limits
+gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 def scout_bible_story():
     print("📖 Scripting anime bible story...")
     prompt = f"""
-    Today is {datetime.date.today()}. Select a dramatic Bible story. 
+    Today is {datetime.date.today()}. Select a dramatic, pivotal Bible story. 
     Write a narration of exactly 75 words.
-    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style'.
-    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
+    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style' (e.g. 'Moses parting the red sea, massive walls of water, cinematic lighting').
+    FORMAT: 
+    TITLE: [text] 
+    SCRIPTURE: [text] 
+    MONOLOGUE: [text] 
     PART_A: [text] PROMPT_A: [text]
     PART_B: [text] PROMPT_B: [text]
     PART_C: [text] PROMPT_C: [text]
     PART_D: [text] PROMPT_D: [text]
     """
-    res = gen_client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-    return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
+    
+    # Retry loop for Gemini script generation
+    for attempt in range(3):
+        try:
+            res = gen_client.models.generate_content(model='gemini-1.5-flash', contents=prompt)
+            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
+        except Exception as e:
+            print(f"⚠️ Gemini busy (Attempt {attempt+1}): {e}")
+            time.sleep(30)
+    return None
 
 def produce():
     data = scout_bible_story()
-    
-    # 🎙️ AUDIO
+    if not data: return
+
+    # 🎙️ AUDIO: Cinematic Voice (SAxJUlDKRc79XAyeWyMu)
     print("🎙️ Generating Narration...")
     audio_gen = client_11.text_to_speech.convert(
         text=data.get('MONOLOGUE'), 
@@ -55,56 +63,53 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION
+    # 🎨 IMAGE GENERATION: Pollinations AI (Zero Quota Usage)
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
-        print(f"🎨 Generating Anime Scene {char}...")
-        prompt_text = f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {data.get(f'PROMPT_{char}')}"
+        print(f"🎨 Pollinations generating scene_{char}...")
+        raw_prompt = data.get(f'PROMPT_{char}', "Anime scenery")
+        # Ensure the prompt is safe for a URL
+        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {raw_prompt}")
+        
+        # Pollinations URL structure
+        url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1080&height=1920&nologo=true&seed={datetime.datetime.now().microsecond}"
         
         try:
-            # Using 'imagen-3.0-generate-001' which is the standard production string
-            response = gen_client.models.generate_images(
-                model='imagen-3.0-generate-001', 
-                prompt=prompt_text,
-                config=types.GenerateImagesConfig(
-                    aspect_ratio="9:16", 
-                    number_of_images=1
-                )
-            )
+            img_res = requests.get(url, timeout=30)
             filename = f"scene_{char}.png"
-            response.generated_images[0].image.save(filename)
+            with open(filename, 'wb') as f:
+                f.write(img_res.content)
             image_files.append(filename)
         except Exception as e:
-            print(f"⚠️ Image {char} failed, using placeholder: {e}")
-            # Creates a dark blue placeholder if the API fails
+            print(f"⚠️ Image failed: {e}. Using dark background.")
             from PIL import Image
-            placeholder = Image.new('RGB', (1080, 1920), color=(20, 20, 40))
+            img = Image.new('RGB', (1080, 1920), color=(20, 20, 40))
             filename = f"scene_{char}.png"
-            placeholder.save(filename)
+            img.save(filename)
             image_files.append(filename)
 
-    # 🎬 VIDEO ASSEMBLY
+    # 🎬 VIDEO ASSEMBLY (Motion & Subtitles)
     clips = []
     for i, img in enumerate(image_files):
+        # Apply Ken Burns effect (slow zoom)
         clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
         clip = clip.resize(lambda t: 1 + 0.04 * t) 
         clips.append(clip)
 
-    # ✍️ SUBTITLES
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
     subs = []
     for i, char in enumerate(chars):
         txt = TextClip(data.get(f'PART_{char}', "..."), font=font_p, fontsize=85, 
                        color='yellow' if i%2==0 else 'white', stroke_color='black', stroke_width=2,
-                       method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1400))
+                       method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1450))
         subs.append(txt)
 
     # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music])
-    except: 
+    except:
         final_audio = voice
 
     # 🚀 RENDER
