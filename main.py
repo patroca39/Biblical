@@ -28,22 +28,22 @@ client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
-    print("📖 Scripting Fate-style anime bible story...")
-    # 🚨 FIX: Forced 'CHARACTER_DEF' to lock consistency across all 4 images.
+    print("📖 Scripting classical bible story...")
+    # 🚨 STYLE FIX: Swapped Anime instructions for Classical/Storybook Art. Kept Character Lock.
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, eye color, and exact clothing.
+    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, beard, and exact traditional clothing.
     Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
     FORMAT: 
     TITLE: [text] 
     SCRIPTURE: [text] 
     MONOLOGUE: [text] 
-    CHARACTER_DEF: [hair color, eye color, specific clothing]
-    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Action happening in scene...]
-    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Action happening in scene...]
-    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Action happening in scene...]
-    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Action happening in scene...]
+    CHARACTER_DEF: [hair color, beard style, specific clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -61,13 +61,12 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 FIX: Added 'negative_prompt' to fix faces and banish pastel colors.
-    # Ufotable triggers added directly to the base payload.
+    # 🚨 STYLE FIX: Base prompt changed to Renaissance/Traditional. Negative prompt blocks Anime.
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Masterpiece, Ufotable Studio, Fate/stay night anime style, dark dramatic cinematic lighting, sharp focus, perfectly drawn face, detailed eyes. {prompt}",
-        "negative_prompt": "pastel, soft colors, bright, cheerful, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs, extra fingers, blurry, western cartoon, sketch, 3d render",
+        "prompt": f"Masterpiece, classical biblical storybook illustration, Renaissance oil painting style, traditional art, dramatic lighting, highly detailed face. {prompt}",
+        "negative_prompt": "anime, manga, modern cartoon, pop art, sketch, 3d render, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs",
         "num_images": 1
     }
 
@@ -123,12 +122,14 @@ def produce():
             
             voice_clip = AudioFileClip("voice.mp3")
             
+            # Reject phantom/short files (75 words should be >15s)
             if voice_clip.duration < 15:
                 print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
                 voice_clip.close() 
                 time.sleep(3)
                 continue
                 
+            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
@@ -210,7 +211,7 @@ def produce():
             body = {
                 'snippet': {
                     'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
-                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #biblestories #shorts", 
                     'categoryId': '22'
                 }, 
                 'status': {'privacyStatus': 'public'}
