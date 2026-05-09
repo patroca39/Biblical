@@ -1,7 +1,0 @@
-google-genai
-elevenlabs
-moviepy==1.0.3
-requests
-google-api-python-client
-google-auth-oauthlib
-Pillow
