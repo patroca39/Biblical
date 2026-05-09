@@ -27,25 +27,25 @@ client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
-    print("📖 Scripting classical bible story...")
-    # 🚨 FIX: Classical Style + Character Lock + Strict Verbatim Subtitle Rule
+    print("📖 Scripting hyper-realistic bible story...")
+    # 🚨 STYLE FIX: Cinematic Photography & Hyper-realistic instructions.
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, beard, and exact traditional clothing.
-    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
+    First, write a CHARACTER_DEF (max 15 words) describing the main character's realistic facial features, weathered skin, and historically accurate linen clothing.
+    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT.
     
-    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE when dividing it into these 4 parts.
+    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE.
     
     FORMAT: 
     TITLE: [text] 
     SCRIPTURE: [text] 
     MONOLOGUE: [text] 
-    CHARACTER_DEF: [hair color, beard style, specific clothing]
-    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    CHARACTER_DEF: [facial details, skin texture, specific linen clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, shot on 35mm lens, 8k, action...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, epic scale, action...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, dramatic lighting, action...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, masterpiece, action...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -63,12 +63,13 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 NAKED PAYLOAD: Bypasses API crash. Negative prompt blocks anime.
+    # 🚨 STYLE FIX: Base prompt changed to Photorealistic Cinematic. 
+    # Negative prompt aggressively blocks all forms of illustration/anime.
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Masterpiece, classical biblical storybook illustration, Renaissance oil painting style, traditional art, dramatic lighting, highly detailed face. {prompt}",
-        "negative_prompt": "anime, manga, modern cartoon, pop art, sketch, 3d render, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs",
+        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy. {prompt}",
+        "negative_prompt": "anime, manga, illustration, drawing, painting, cartoon, sketch, 3d render, CGI, unreal engine, plastic skin, distorted face, poorly drawn eyes, deformed anatomy, extra fingers, blurry, watermark",
         "num_images": 1
     }
 
@@ -103,7 +104,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Stable SDK logic ported from TheWorldToday
+    # 🎙️ AUDIO GENERATION: Stable SDK logic from TheWorldToday
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -115,14 +116,14 @@ def produce():
                 text=data.get('MONOLOGUE'), 
                 voice_id="SAxJUlDKRc79XAyeWyMu", 
                 model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128" # Stable format constraint
+                output_format="mp3_44100_128"
             )
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
                     f.write(chunk)
             
-            time.sleep(5) # Buffer to ensure file saves properly
+            time.sleep(5) 
             voice_clip = AudioFileClip("voice.mp3")
             
             if voice_clip.duration < 15:
@@ -131,7 +132,6 @@ def produce():
                 time.sleep(3)
                 continue
                 
-            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
@@ -161,16 +161,15 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
-            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
+                  .resize(lambda t: 1 + 0.04 * t)) 
             final_clips.append(bg)
             
-            # 🚨 FIX: Uncapped Text, Expanded Box Height (500), Safe Zone Positioning
+            # Verbatim Subtitles, expanded box, Safe Zone
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...") 
             
