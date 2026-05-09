@@ -30,15 +30,17 @@ LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting anime bible story...")
+    # Updated prompt to define character appearance and art style more strictly
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    Provide 4 IMAGE PROMPTS in 'Epic Shonen Anime Style'.
+    Define the specific appearance of main characters (clothing, features).
+    Provide 4 highly detailed IMAGE PROMPTS in '90s Shonen Anime Illustration style, clean lines, cell-shaded, high resolution'.
     FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
-    PART_A: [text] PROMPT_A: [text]
-    PART_B: [text] PROMPT_B: [text]
-    PART_C: [text] PROMPT_C: [text]
-    PART_D: [text] PROMPT_D: [text]
+    PART_A: [text] PROMPT_A: [90s Shonen Anime style, detailed environment, repeated character descriptions...]
+    PART_B: [text] PROMPT_B: [90s Shonen Anime style...]
+    PART_C: [text] PROMPT_C: [90s Shonen Anime style...]
+    PART_D: [text] PROMPT_D: [90s Shonen Anime style...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -56,13 +58,16 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 NAKED PAYLOAD FIX: Removed 'modelId' and 'alchemy'. 
-    # This forces Leonardo to use its universal default engine, bypassing API version conflicts.
+    # Standard Model ID: Leonardo Diffusion XL for reliable automation
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"High quality 90s Shonen Anime Style illustration, cinematic lighting, vibrant, {prompt}",
-        "num_images": 1
+        "modelId": "b24e92ad-9626-45ef-b3ad-5420377e38a1", 
+        "prompt": f"90s Shonen Anime Illustration style, clean lines, cell-shaded, high resolution, cinematic lighting, {prompt}",
+        "num_images": 1,
+        "alchemy": True,
+        "presetStyle": "ANIME",
+        "scheduler": "LEONARDO"
     }
 
     try:
@@ -164,19 +169,24 @@ def produce():
                   .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
             final_clips.append(bg)
             
-            # 2. Subtitle Layer
+            # 2. Subtitle Layer (Refined Positioning & Font Size)
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
-            safe_text = (raw_text[:110] + '...') if len(raw_text) > 110 else raw_text
+            # Limiting character count per subtitle box slightly more
+            safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
             
-            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=75, 
+            # --- SUBTITLE REFINEMENTS ---
+            # Fontsize reduced to 60.
+            # Positioning adjusted lower (to y=1600) to ensure visibility in the safe area.
+            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=60, 
                             color='yellow' if i % 2 == 0 else 'white', 
                             stroke_color='black', stroke_width=2,
-                            method='caption', size=(850, 450))
+                            method='caption', size=(850, 400)) # Maintain size but update positioning
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1350)))
+                   .set_position(('center', 1600))) # Move subtitles lower
             final_clips.append(txt)
+            # ---------------------------
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
 
