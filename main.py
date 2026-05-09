@@ -14,9 +14,11 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# Initialize Clients
-# We use gemini-1.5-flash for the script to stay well within free limits
-gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
+# Use v1 for maximum stability
+gen_client = genai.Client(
+    api_key=os.getenv('GEMINI_API_KEY'), 
+    http_options={'api_version': 'v1'} 
+)
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 def scout_bible_story():
@@ -24,25 +26,22 @@ def scout_bible_story():
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic, pivotal Bible story. 
     Write a narration of exactly 75 words.
-    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style' (e.g. 'Moses parting the red sea, massive walls of water, cinematic lighting').
-    FORMAT: 
-    TITLE: [text] 
-    SCRIPTURE: [text] 
-    MONOLOGUE: [text] 
+    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style'.
+    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
     PART_A: [text] PROMPT_A: [text]
     PART_B: [text] PROMPT_B: [text]
     PART_C: [text] PROMPT_C: [text]
     PART_D: [text] PROMPT_D: [text]
     """
     
-    # Retry loop for Gemini script generation
     for attempt in range(3):
         try:
+            # Switched to stable v1 and explicit model string
             res = gen_client.models.generate_content(model='gemini-1.5-flash', contents=prompt)
             return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
         except Exception as e:
-            print(f"⚠️ Gemini busy (Attempt {attempt+1}): {e}")
-            time.sleep(30)
+            print(f"⚠️ Attempt {attempt+1} failed: {e}")
+            time.sleep(10)
     return None
 
 def produce():
