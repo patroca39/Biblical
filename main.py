@@ -29,18 +29,18 @@ client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
-    print("📖 Scripting anime bible story...")
-    # Updated prompt to define character appearance and art style more strictly
+    print("📖 Scripting Fate-style anime bible story...")
+    # 🚨 FIX: Enforcing Ufotable/Fate Series style and strict character consistency
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    Define the specific appearance of main characters (clothing, features).
-    Provide 4 highly detailed IMAGE PROMPTS in '90s Shonen Anime Illustration style, clean lines, cell-shaded, high resolution'.
+    Define the specific appearance of main characters (clothing colors, hair, features) and KEEP THEM EXACTLY THE SAME across all prompts.
+    Provide 4 highly detailed IMAGE PROMPTS in 'Ufotable studio, Fate Series anime art style, TYPE-MOON, cinematic lighting, highly detailed character design'.
     FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
-    PART_A: [text] PROMPT_A: [90s Shonen Anime style, detailed environment, repeated character descriptions...]
-    PART_B: [text] PROMPT_B: [90s Shonen Anime style...]
-    PART_C: [text] PROMPT_C: [90s Shonen Anime style...]
-    PART_D: [text] PROMPT_D: [90s Shonen Anime style...]
+    PART_A: [text] PROMPT_A: [Ufotable studio, Fate series style, repeated character descriptions...]
+    PART_B: [text] PROMPT_B: [Ufotable studio, Fate series style, repeated character descriptions...]
+    PART_C: [text] PROMPT_C: [Ufotable studio, Fate series style, repeated character descriptions...]
+    PART_D: [text] PROMPT_D: [Ufotable studio, Fate series style, repeated character descriptions...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -58,16 +58,15 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # Standard Model ID: Leonardo Diffusion XL for reliable automation
+    # 🚨 FIX: Using 'Anime Pastel Dream' model and turning Alchemy OFF. 
+    # This is the safest way to bypass the API version error.
     payload = {
         "height": 1024,
         "width": 576,
-        "modelId": "b24e92ad-9626-45ef-b3ad-5420377e38a1", 
-        "prompt": f"90s Shonen Anime Illustration style, clean lines, cell-shaded, high resolution, cinematic lighting, {prompt}",
+        "modelId": "ac614f96-1082-4ad2-ad11-7f0644597a85", # Anime Pastel Dream
+        "prompt": f"Ufotable studio, Fate series anime art style, high contrast, cinematic lighting, {prompt}",
         "num_images": 1,
-        "alchemy": True,
-        "presetStyle": "ANIME",
-        "scheduler": "LEONARDO"
+        "alchemy": False # Alchemy disabled to ensure API v1 compatibility
     }
 
     try:
@@ -80,7 +79,7 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
-        # Poll for completion (Wait up to 90 seconds)
+        # Poll for completion
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -101,7 +100,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Aggressive Retry Logic
+    # 🎙️ AUDIO GENERATION
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -117,30 +116,27 @@ def produce():
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
-                    if chunk:
-                        f.write(chunk)
+                    if chunk: f.write(chunk)
             
             voice_clip = AudioFileClip("voice.mp3")
             
-            # Reject phantom/short files (75 words should be >15s)
             if voice_clip.duration < 15:
                 print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
-                voice_clip.close() # Free memory
+                voice_clip.close()
                 time.sleep(3)
                 continue
                 
-            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
             break
             
         except Exception as e:
-            print(f"⚠️ ElevenLabs network error: {e}")
+            print(f"⚠️ ElevenLabs error: {e}")
             time.sleep(3)
             
     if not voice:
-        print("❌ All ElevenLabs attempts failed. Proceeding with 30s background track.")
+        print("❌ ElevenLabs quota likely empty. Proceeding with 30s background track.")
 
     p_dur = duration / 4 
 
@@ -150,7 +146,6 @@ def produce():
         fname = f"scene_{char}.png"
         prompt = data.get(f'PROMPT_{char}')
         if not generate_leonardo_image(prompt, fname):
-            # Fallback to dark background if render fails
             PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
         image_files.append(fname)
 
@@ -160,33 +155,26 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
-            # 1. Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
+                  .resize(lambda t: 1 + 0.04 * t)) 
             final_clips.append(bg)
             
-            # 2. Subtitle Layer (Refined Positioning & Font Size)
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
-            # Limiting character count per subtitle box slightly more
             safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
             
-            # --- SUBTITLE REFINEMENTS ---
-            # Fontsize reduced to 60.
-            # Positioning adjusted lower (to y=1600) to ensure visibility in the safe area.
             txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=60, 
                             color='yellow' if i % 2 == 0 else 'white', 
                             stroke_color='black', stroke_width=2,
-                            method='caption', size=(850, 400)) # Maintain size but update positioning
+                            method='caption', size=(850, 400))
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1600))) # Move subtitles lower
+                   .set_position(('center', 1600))) 
             final_clips.append(txt)
-            # ---------------------------
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
 
@@ -217,7 +205,7 @@ def produce():
             body = {
                 'snippet': {
                     'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
-                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime #shorts #fate", 
                     'categoryId': '22'
                 }, 
                 'status': {'privacyStatus': 'public'}
