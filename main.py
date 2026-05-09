@@ -16,7 +16,7 @@ change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
-# FIX 1: Explicitly set to 'v1' for production stability
+# Use v1 for production stability
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1'} 
@@ -41,7 +41,7 @@ def scout_bible_story():
 def produce():
     data = scout_bible_story()
     
-    # 🎙️ AUDIO: Cinematic Voice ID (SAxJUlDKRc79XAyeWyMu)
+    # 🎙️ AUDIO
     print("🎙️ Generating Narration...")
     audio_gen = client_11.text_to_speech.convert(
         text=data.get('MONOLOGUE'), 
@@ -55,21 +55,20 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: The Production-Grade Fix
+    # 🎨 IMAGE GENERATION
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
         print(f"🎨 Generating Anime Scene {char}...")
         prompt_text = f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {data.get(f'PROMPT_{char}')}"
         
-        # FIX 2: Using the stable production model string
+        # CLEANED CONFIG: Removed watermark parameter
         response = gen_client.models.generate_images(
             model='imagen-3.0-generate-001', 
             prompt=prompt_text,
             config=types.GenerateImagesConfig(
                 aspect_ratio="9:16", 
-                number_of_images=1,
-                add_watermark=False
+                number_of_images=1
             )
         )
         
@@ -77,7 +76,7 @@ def produce():
         response.generated_images[0].image.save(filename)
         image_files.append(filename)
 
-    # 🎬 VIDEO ASSEMBLY (Ken Burns Effect)
+    # 🎬 VIDEO ASSEMBLY
     clips = []
     for i, img in enumerate(image_files):
         clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
@@ -108,7 +107,14 @@ def produce():
         print("🚀 Uploading to YouTube...")
         creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
         from google.oauth2.credentials import Credentials
-        creds = Credentials(**creds_json)
+        creds = Credentials(
+            token=creds_json.get('token') or creds_json.get('access_token'),
+            refresh_token=creds_json.get('refresh_token'),
+            token_uri=creds_json.get('token_uri'),
+            client_id=creds_json.get('client_id'),
+            client_secret=creds_json.get('client_secret'),
+            scopes=creds_json.get('scopes')
+        )
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
         youtube = build("youtube", "v3", credentials=creds)
