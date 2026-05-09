@@ -43,8 +43,7 @@ def scout_bible_story():
     for attempt in range(3):
         try:
             res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-            res_text = res.text
-            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res_text.split('\n') if ':' in line}
+            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
         except Exception as e:
             print(f"⚠️ Attempt {attempt+1} failed: {e}")
             time.sleep(15)
@@ -54,7 +53,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO: Cinematic Voice (SAxJUlDKRc79XAyeWyMu)
+    # 🎙️ AUDIO
     print("🎙️ Generating Narration...")
     audio_gen = client_11.text_to_speech.convert(
         text=data.get('MONOLOGUE'), 
@@ -68,7 +67,7 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: Pollinations AI
+    # 🎨 IMAGE GENERATION: Pollinations AI with Validation
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
@@ -77,24 +76,34 @@ def produce():
         clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {raw_prompt}")
         url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1080&height=1920&nologo=true&seed={datetime.datetime.now().microsecond}"
         
+        filename = f"scene_{char}.png"
         try:
             img_res = requests.get(url, timeout=30)
-            filename = f"scene_{char}.png"
-            with open(filename, 'wb') as f:
-                f.write(img_res.content)
+            if img_res.status_code == 200 and len(img_res.content) > 1000: # Check if it's a real file
+                with open(filename, 'wb') as f:
+                    f.write(img_res.content)
+                image_files.append(filename)
+            else:
+                raise ValueError("Incomplete image data received")
+            time.sleep(3) # Slow down to let server breathe
+        except Exception as e:
+            print(f"⚠️ Scene {char} failed ({e}). Creating fallback.")
+            placeholder = PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35))
+            placeholder.save(filename)
             image_files.append(filename)
-            time.sleep(2)
-        except:
-            image_files.append(None)
 
     # 🎬 VIDEO ASSEMBLY
+    print("🎬 Rendering Biblical Masterpiece...")
     clips = []
     for i, img in enumerate(image_files):
-        if img:
+        # We wrap in a try-block to catch the specific 'No Backend' error
+        try:
             clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
-            # Ken Burns effect: This was where the error happened
             clip = clip.resize(lambda t: 1 + 0.04 * t) 
             clips.append(clip)
+        except Exception as render_err:
+            print(f"❌ Could not process {img}: {render_err}")
+            continue
 
     # ✍️ SUBTITLES
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
