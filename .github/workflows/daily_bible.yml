@@ -2,17 +2,17 @@ name: Biblical Anime Daily Automation
 
 on:
   schedule:
-    # Runs at 10:00 AM UTC (approx. 6:00 PM in Tacloban)
-    - cron: '0 10 * * *'
-  workflow_dispatch: # Allows manual testing
+    # Runs at 08:00 AM UTC to avoid quota collisions with other repos
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Allows you to manually trigger a run for testing
 
 jobs:
-  build-and-deploy:
+  build-and-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -21,11 +21,11 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install System Dependencies (FFmpeg & ImageMagick)
+      - name: Install System Dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick ffmpeg > /dev/null
-          # This policy fix is essential for MoviePy to generate the anime-style text overlays
+          # Fixes the security policy that prevents MoviePy from writing text
           sudo sed -i 's/domain="path" rights="none" pattern="@\*"/domain="path" rights="read|write" pattern="@\*"/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Libraries
@@ -33,17 +33,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Biblical Automation
+      - name: Execute Biblical Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          # PEXELS_API_KEY is no longer strictly needed for Pollinations, 
+          # but keeping it here if you ever revert.
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python main.py
 
-      - name: Save Video Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Video Artifact
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: biblical-anime-video
+          name: biblical-final-video
           path: biblical_export.mp4
+          retention-days: 3
