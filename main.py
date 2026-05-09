@@ -14,7 +14,7 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# Initialize Clients - Using v1beta and explicit model ID to prevent 404s
+# Use the exact initialization from your working 'TheWorldToday' repo
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1beta'} 
@@ -22,29 +22,24 @@ gen_client = genai.Client(
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 def scout_bible_story():
-    print("📖 Scripting anime bible story...")
+    print("📖 Scripting anime bible story using Gemini 2.5 Engine...")
     prompt = f"""
-    Today is {datetime.date.today()}. Select a dramatic, pivotal Bible story. 
+    Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
     Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style'.
-    FORMAT: 
-    TITLE: [text] 
-    SCRIPTURE: [text] 
-    MONOLOGUE: [text] 
+    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
     PART_A: [text] PROMPT_A: [text]
     PART_B: [text] PROMPT_B: [text]
     PART_C: [text] PROMPT_C: [text]
     PART_D: [text] PROMPT_D: [text]
     """
     
+    # Using the working model ID: gemini-2.5-flash
     for attempt in range(3):
         try:
-            # Using the full resource name to bypass naming glitches
-            res = gen_client.models.generate_content(
-                model='models/gemini-1.5-flash', 
-                contents=prompt
-            )
-            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
+            res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            res_text = res.text
+            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res_text.split('\n') if ':' in line}
         except Exception as e:
             print(f"⚠️ Attempt {attempt+1} failed: {e}")
             time.sleep(15)
@@ -52,9 +47,7 @@ def scout_bible_story():
 
 def produce():
     data = scout_bible_story()
-    if not data:
-        print("❌ Could not generate script. Exiting.")
-        return
+    if not data: return
 
     # 🎙️ AUDIO: Cinematic Voice (SAxJUlDKRc79XAyeWyMu)
     print("🎙️ Generating Narration...")
@@ -70,16 +63,13 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: Pollinations AI (Zero Quota Usage)
+    # 🎨 IMAGE GENERATION: Pollinations AI (Zero Gemini Quota Usage)
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
         print(f"🎨 Pollinations generating scene_{char}...")
         raw_prompt = data.get(f'PROMPT_{char}', "Epic Anime Scenery")
-        # Ensure the prompt is safe for a URL
         clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {raw_prompt}")
-        
-        # Pollinations URL - dynamic seed ensures unique images every time
         url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1080&height=1920&nologo=true&seed={datetime.datetime.now().microsecond}"
         
         try:
@@ -88,24 +78,19 @@ def produce():
             with open(filename, 'wb') as f:
                 f.write(img_res.content)
             image_files.append(filename)
-            time.sleep(2) # Breath time for the server
-        except Exception as e:
-            print(f"⚠️ Image {char} failed: {e}. Creating fallback.")
-            from PIL import Image
-            img = Image.new('RGB', (1080, 1920), color=(15, 15, 35))
-            filename = f"scene_{char}.png"
-            img.save(filename)
-            image_files.append(filename)
+            time.sleep(2)
+        except:
+            image_files.append(None) # Handle failure gracefully
 
     # 🎬 VIDEO ASSEMBLY
     clips = []
     for i, img in enumerate(image_files):
-        # Ken Burns effect: 4% slow zoom in
-        clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
-        clip = clip.resize(lambda t: 1 + 0.04 * t) 
-        clips.append(clip)
+        if img:
+            clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
+            clip = clip.resize(lambda t: 1 + 0.04 * t) # Ken Burns Zoom
+            clips.append(clip)
 
-    # ✍️ SUBTITLES (Anime Yellow/White style)
+    # ✍️ SUBTITLES (Anime Style)
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
     subs = []
     for i, char in enumerate(chars):
@@ -114,19 +99,18 @@ def produce():
                        method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1450))
         subs.append(txt)
 
-    # 🎛️ AUDIO MIX (With BGM)
+    # 🎛️ AUDIO MIX (Background Music)
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music])
     except:
-        print("⚠️ Music mix failed or bible_bgm.m4a missing. Using voice only.")
         final_audio = voice
 
     # 🚀 RENDER
     final = CompositeVideoClip(clips + subs).set_audio(final_audio).set_duration(duration)
     final.write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 🚀 YOUTUBE UPLOAD
+    # 🚀 YOUTUBE UPLOAD (Using your verified creds logic)
     if os.path.exists("biblical_export.mp4"):
         print("🚀 Uploading to YouTube...")
         try:
@@ -143,15 +127,11 @@ def produce():
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=creds)
-            
-            video_title = f"{data.get('TITLE')} | {data.get('SCRIPTURE')}"
-            video_desc = f"{data.get('MONOLOGUE')}\n\n#bible #anime #scripture #faith"
-            
-            body = {'snippet': {'title': video_title, 'description': video_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+            body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': f"{data.get('MONOLOGUE')}\n#bible #anime", 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
             youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
-            print("✅ SUCCESS: Video is live!")
+            print("✅ SUCCESS!")
         except Exception as e:
-            print(f"❌ Upload gate failed: {e}")
+            print(f"❌ Upload failed: {e}")
 
 if __name__ == "__main__":
     produce()
