@@ -38,9 +38,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
-          # PEXELS_API_KEY is no longer strictly needed for Pollinations, 
-          # but keeping it here if you ever revert.
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }} # ADD THIS LINE
         run: python main.py
 
       - name: Upload Video Artifact
