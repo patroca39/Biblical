@@ -66,66 +66,72 @@ def produce():
         duration = 30.0
         voice = None
 
-    if duration < 5: duration = 30.0
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION
+    # 🎨 IMAGE GENERATION: High-Reliability Logic
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
-        print(f"🎨 Pollinations generating scene_{char}...")
+        print(f"🎨 Generating Anime Scene {char}...")
         raw_prompt = data.get(f'PROMPT_{char}', "Epic Anime Scenery")
-        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, {raw_prompt}")
-        url = f"https://pollinations.ai/p/{clean_prompt}?width=1080&height=1920&seed={datetime.datetime.now().microsecond}&model=flux"
+        # We use 'turbo' model for faster, more reliable automation response
+        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, {raw_prompt}")
+        url = f"https://pollinations.ai/p/{clean_prompt}?width=1080&height=1920&seed={datetime.datetime.now().microsecond}&model=turbo"
         
         filename = f"scene_{char}.png"
-        try:
-            img_res = requests.get(url, timeout=40)
-            if img_res.status_code == 200 and len(img_res.content) > 5000:
-                with open(filename, 'wb') as f:
-                    f.write(img_res.content)
-                image_files.append(filename)
-            else:
-                raise ValueError("Bad Image")
-        except:
+        success = False
+        
+        for retry in range(2): # Try twice per image
+            try:
+                img_res = requests.get(url, timeout=30)
+                if img_res.status_code == 200 and len(img_res.content) > 10000:
+                    with open(filename, 'wb') as f:
+                        f.write(img_res.content)
+                    image_files.append(filename)
+                    success = True
+                    break
+                else:
+                    print(f"⌛ Server busy for {char}, waiting...")
+                    time.sleep(5)
+            except:
+                time.sleep(5)
+        
+        if not success:
+            print(f"⚠️ Creating fallback for {char}")
             PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35)).save(filename)
             image_files.append(filename)
-        time.sleep(1)
+        
+        time.sleep(2) # Gap between requests
 
     # 🎬 VIDEO ASSEMBLY
     print(f"🎬 Rendering {duration:.1f}s sequence...")
     final_clips = []
     
-    # 1. Backgrounds
     for i, img in enumerate(image_files):
         try:
+            # 1. Background Image
             c = (ImageClip(img)
                  .set_duration(p_dur)
                  .set_start(i * p_dur)
                  .resize(height=1920)
                  .set_position('center')
-                 .resize(lambda t: 1 + 0.03 * t))
+                 .resize(lambda t: 1 + 0.04 * t))
             final_clips.append(c)
-        except: continue
-
-    # 2. Subtitles (Layered ON TOP with crash-protection)
-    font_p = "THEBOLDFONT-FREEVERSION.ttf"
-    for i, char in enumerate(chars):
-        raw_text = data.get(f'PART_{char}', "...")
-        # CRITICAL FIX: Limit characters per subtitle block to prevent ImageMagick crash
-        safe_text = (raw_text[:120] + '...') if len(raw_text) > 120 else raw_text
-        
-        try:
-            txt = (TextClip(safe_text, font=font_p, fontsize=70, # Slightly smaller font
+            
+            # 2. Subtitle ON TOP
+            raw_text = data.get(f'PART_{chars[i]}', "...")
+            safe_text = (raw_text[:110] + '...') if len(raw_text) > 110 else raw_text
+            
+            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=70, 
                             color='yellow' if i % 2 == 0 else 'white', 
                             stroke_color='black', stroke_width=2,
-                            method='caption', size=(850, 400)) # Explicit box size
+                            method='caption', size=(850, 450))
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1400)))
+                   .set_position(('center', 1350)))
             final_clips.append(txt)
         except Exception as e:
-            print(f"⚠️ Subtitle {char} failed: {e}")
+            print(f"⚠️ Frame {i} assembly error: {e}")
 
     # 🎛️ AUDIO MIX
     try:
