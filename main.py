@@ -56,16 +56,13 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # Stable Model ID: Leonardo Diffusion XL
+    # 🚨 NAKED PAYLOAD FIX: Removed 'modelId' and 'alchemy'. 
+    # This forces Leonardo to use its universal default engine, bypassing API version conflicts.
     payload = {
         "height": 1024,
         "width": 576,
-        "modelId": "b24e92ad-9626-45ef-b3ad-5420377e38a1", 
-        "prompt": f"Epic Shonen Anime Style, cinematic lighting, {prompt}",
-        "num_images": 1,
-        "alchemy": True,
-        "presetStyle": "ANIME",
-        "scheduler": "LEONARDO"
+        "prompt": f"High quality 90s Shonen Anime Style illustration, cinematic lighting, vibrant, {prompt}",
+        "num_images": 1
     }
 
     try:
