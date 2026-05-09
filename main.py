@@ -29,16 +29,21 @@ LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting Fate-style anime bible story...")
+    # 🚨 FIX: Forced 'CHARACTER_DEF' to lock consistency across all 4 images.
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    Define the specific appearance of main characters (clothing colors, hair, features) and KEEP THEM EXACTLY THE SAME across all prompts.
-    Provide 4 highly detailed IMAGE PROMPTS in 'Ufotable studio, Fate Series anime art style, TYPE-MOON, cinematic lighting, highly detailed character design'.
-    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
-    PART_A: [text] PROMPT_A: [Ufotable studio, Fate series style, repeated character descriptions...]
-    PART_B: [text] PROMPT_B: [Ufotable studio, Fate series style, repeated character descriptions...]
-    PART_C: [text] PROMPT_C: [Ufotable studio, Fate series style, repeated character descriptions...]
-    PART_D: [text] PROMPT_D: [Ufotable studio, Fate series style, repeated character descriptions...]
+    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, eye color, and exact clothing.
+    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
+    FORMAT: 
+    TITLE: [text] 
+    SCRIPTURE: [text] 
+    MONOLOGUE: [text] 
+    CHARACTER_DEF: [hair color, eye color, specific clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Action happening in scene...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Action happening in scene...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Action happening in scene...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Action happening in scene...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -56,12 +61,13 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 NAKED PAYLOAD FIX: Removed 'modelId' and 'alchemy'. 
-    # This forces Leonardo to use its universal default engine, completely bypassing API version conflicts.
+    # 🚨 FIX: Added 'negative_prompt' to fix faces and banish pastel colors.
+    # Ufotable triggers added directly to the base payload.
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Ufotable studio, Fate series anime art style, high contrast, cinematic lighting, masterpiece, highly detailed, {prompt}",
+        "prompt": f"Masterpiece, Ufotable Studio, Fate/stay night anime style, dark dramatic cinematic lighting, sharp focus, perfectly drawn face, detailed eyes. {prompt}",
+        "negative_prompt": "pastel, soft colors, bright, cheerful, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs, extra fingers, blurry, western cartoon, sketch, 3d render",
         "num_images": 1
     }
 
@@ -75,7 +81,7 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
-        # Poll for completion (Wait up to 90 seconds)
+        # Poll for completion
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -117,14 +123,12 @@ def produce():
             
             voice_clip = AudioFileClip("voice.mp3")
             
-            # Reject phantom/short files (75 words should be >15s)
             if voice_clip.duration < 15:
                 print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
-                voice_clip.close() # Free memory
+                voice_clip.close() 
                 time.sleep(3)
                 continue
                 
-            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
@@ -145,7 +149,6 @@ def produce():
         fname = f"scene_{char}.png"
         prompt = data.get(f'PROMPT_{char}')
         if not generate_leonardo_image(prompt, fname):
-            # Fallback to dark background if render fails
             PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
         image_files.append(fname)
 
@@ -155,27 +158,27 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
-            # 1. Background Layer
+            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns effect
+                  .resize(lambda t: 1 + 0.04 * t))
             final_clips.append(bg)
             
-            # 2. Subtitle Layer (Refined Positioning & Font Size)
+            # Subtitle Safe Zone Fix
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
             safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
             
-            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=60, 
+            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=65, 
                             color='yellow' if i % 2 == 0 else 'white', 
-                            stroke_color='black', stroke_width=2,
+                            stroke_color='black', stroke_width=3,
                             method='caption', size=(850, 400))
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1600))) 
+                   .set_position(('center', 1150))) # Placed high enough for Shorts UI
             final_clips.append(txt)
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
