@@ -3,7 +3,6 @@ import json
 import datetime
 import time
 import requests
-import urllib.parse
 import PIL.Image
 
 # --- PILLOW COMPATIBILITY FIX ---
@@ -11,6 +10,8 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
+from google.genai import types
+from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
 from moviepy.audio.fx.all import audio_loop
@@ -18,16 +19,17 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# Initialize Gemini Client
+# Initialize Clients
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1beta'} 
 )
+client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
-ELEVEN_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting classical bible story...")
+    # 🚨 STYLE FIX: Classical biblical storybook illustration & Character Lock
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
@@ -59,6 +61,7 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
+    # 🚨 NAKED PAYLOAD: No modelId, no alchemy. Prevents API crash. Negative prompt blocks anime.
     payload = {
         "height": 1024,
         "width": 576,
@@ -77,6 +80,7 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
+        # Poll for completion
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -97,7 +101,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Direct HTTP Call (No hidden errors)
+    # 🎙️ AUDIO GENERATION: Directly ported from TheWorldToday success
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -105,47 +109,38 @@ def produce():
     for attempt in range(3):
         try:
             print(f"  ...Audio Attempt {attempt + 1}/3")
-            url = "https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu"
-            headers = {
-                "Accept": "audio/mpeg",
-                "Content-Type": "application/json",
-                "xi-api-key": ELEVEN_API_KEY
-            }
-            payload = {
-                "text": data.get('MONOLOGUE'),
-                "model_id": "eleven_multilingual_v2",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
+            audio_gen = client_11.text_to_speech.convert(
+                text=data.get('MONOLOGUE'), 
+                voice_id="SAxJUlDKRc79XAyeWyMu", # Biblical Voice
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128" # The crucial stable format constraint
+            )
             
-            audio_res = requests.post(url, json=payload, headers=headers)
+            with open("voice.mp3", "wb") as f:
+                for chunk in audio_gen:
+                    f.write(chunk)
             
-            if audio_res.status_code == 200:
-                with open("voice.mp3", "wb") as f:
-                    f.write(audio_res.content)
-                
-                voice_clip = AudioFileClip("voice.mp3")
-                
-                if voice_clip.duration < 15:
-                    print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
-                    voice_clip.close()
-                    time.sleep(3)
-                    continue
-                    
-                duration = voice_clip.duration
-                voice = voice_clip
-                print(f"✅ Voice generated successfully: {duration:.1f}s")
-                break
-            else:
-                # This will print the EXACT reason ElevenLabs is failing!
-                print(f"⚠️ ElevenLabs API Error {audio_res.status_code}: {audio_res.text}")
+            time.sleep(5) # Buffer to ensure file closes properly
+            voice_clip = AudioFileClip("voice.mp3")
+            
+            if voice_clip.duration < 15:
+                print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
+                voice_clip.close() 
                 time.sleep(3)
+                continue
                 
+            # Success
+            duration = voice_clip.duration
+            voice = voice_clip
+            print(f"✅ Voice generated successfully: {duration:.1f}s")
+            break
+            
         except Exception as e:
-            print(f"⚠️ ElevenLabs network error: {e}")
+            print(f"⚠️ ElevenLabs SDK error: {e}")
             time.sleep(3)
             
     if not voice:
-        print("❌ All ElevenLabs attempts failed. Proceeding with background track.")
+        print("❌ All ElevenLabs attempts failed. Proceeding with background track only.")
 
     p_dur = duration / 4 
 
@@ -164,14 +159,16 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
+            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t))
+                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
             final_clips.append(bg)
             
+            # Subtitle Safe Zone Fix (Placed at y=1150)
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...")
             safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
