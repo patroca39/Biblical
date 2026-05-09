@@ -31,7 +31,7 @@ def scout_bible_story():
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style'.
+    Provide 4 IMAGE PROMPTS in 'Epic Shonen Anime Style'.
     FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
     PART_A: [text] PROMPT_A: [text]
     PART_B: [text] PROMPT_B: [text]
@@ -62,15 +62,11 @@ def produce():
         voice = AudioFileClip("voice.mp3")
         duration = voice.duration
     except Exception as e:
-        print(f"⚠️ Voice failed ({e}), using fallback duration.")
-        duration = 35.0 # Fallback safety
+        print(f"⚠️ Voice failed ({e}), forcing 30s.")
+        duration = 30.0
         voice = None
 
-    # Safety check for the 0.8s bug
-    if duration < 5:
-        print("⚠️ Duration too short, forcing 30s timeline.")
-        duration = 30.0
-    
+    if duration < 5: duration = 30.0
     p_dur = duration / 4 
 
     # 🎨 IMAGE GENERATION
@@ -88,21 +84,16 @@ def produce():
             if img_res.status_code == 200 and len(img_res.content) > 5000:
                 with open(filename, 'wb') as f:
                     f.write(img_res.content)
-                # Double check the file is readable
-                with PIL.Image.open(filename) as test_img:
-                    test_img.verify()
                 image_files.append(filename)
             else:
-                raise ValueError("Invalid image file")
+                raise ValueError("Bad Image")
         except:
-            print(f"⚠️ Scene {char} failed. Generating local placeholder...")
-            placeholder = PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35))
-            placeholder.save(filename)
+            PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35)).save(filename)
             image_files.append(filename)
-        time.sleep(2)
+        time.sleep(1)
 
     # 🎬 VIDEO ASSEMBLY
-    print(f"🎬 Creating {duration:.1f}s video sequence...")
+    print(f"🎬 Rendering {duration:.1f}s sequence...")
     final_clips = []
     
     # 1. Backgrounds
@@ -117,29 +108,33 @@ def produce():
             final_clips.append(c)
         except: continue
 
-    # 2. Subtitles (Ensuring they are ON TOP)
+    # 2. Subtitles (Layered ON TOP with crash-protection)
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
     for i, char in enumerate(chars):
-        txt = (TextClip(data.get(f'PART_{char}', "..."), font=font_p, fontsize=85, 
-                        color='yellow' if i % 2 == 0 else 'white', 
-                        stroke_color='black', stroke_width=2,
-                        method='caption', size=(900, None))
-               .set_duration(p_dur)
-               .set_start(i * p_dur)
-               .set_position(('center', 1450)))
-        final_clips.append(txt)
+        raw_text = data.get(f'PART_{char}', "...")
+        # CRITICAL FIX: Limit characters per subtitle block to prevent ImageMagick crash
+        safe_text = (raw_text[:120] + '...') if len(raw_text) > 120 else raw_text
+        
+        try:
+            txt = (TextClip(safe_text, font=font_p, fontsize=70, # Slightly smaller font
+                            color='yellow' if i % 2 == 0 else 'white', 
+                            stroke_color='black', stroke_width=2,
+                            method='caption', size=(850, 400)) # Explicit box size
+                   .set_duration(p_dur)
+                   .set_start(i * p_dur)
+                   .set_position(('center', 1400)))
+            final_clips.append(txt)
+        except Exception as e:
+            print(f"⚠️ Subtitle {char} failed: {e}")
 
     # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
-        if voice:
-            final_audio = CompositeAudioClip([voice, music])
-        else:
-            final_audio = music
+        final_audio = CompositeAudioClip([voice, music]) if voice else music
     except:
         final_audio = voice if voice else None
 
-    # 🚀 RENDER
+    # 🚀 FINAL COMPOSE
     final_video = CompositeVideoClip(final_clips, size=(1080, 1920))
     if final_audio:
         final_video = final_video.set_audio(final_audio)
@@ -148,7 +143,7 @@ def produce():
 
     # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
-        print("🚀 Uploading...")
+        print("🚀 Uploading to YouTube...")
         try:
             creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
