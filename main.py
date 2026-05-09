@@ -51,6 +51,9 @@ def produce():
 
     # 🎙️ AUDIO GENERATION
     print("🎙️ Generating Narration...")
+    duration = 30.0 # Standard Default
+    voice = None
+    
     try:
         audio_gen = client_11.text_to_speech.convert(
             text=data.get('MONOLOGUE'), 
@@ -59,70 +62,63 @@ def produce():
         )
         with open("voice.mp3", "wb") as f:
             for chunk in audio_gen: f.write(chunk)
-        voice = AudioFileClip("voice.mp3")
-        duration = voice.duration
+        
+        voice_clip = AudioFileClip("voice.mp3")
+        if voice_clip.duration > 5:
+            voice = voice_clip
+            duration = voice.duration
+            print(f"✅ Voice generated. Duration: {duration:.1f}s")
     except Exception as e:
-        print(f"⚠️ Voice failed ({e}), forcing 30s.")
-        duration = 30.0
-        voice = None
+        print(f"⚠️ Voice failed ({e}). Using 30s silent-anchor mode.")
 
+    # CALCULATE TIMING
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: High-Reliability Logic
+    # 🎨 IMAGE GENERATION (Pollinations Flux)
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
-        print(f"🎨 Generating Anime Scene {char}...")
+        print(f"🎨 Generating Scene {char}...")
         raw_prompt = data.get(f'PROMPT_{char}', "Epic Anime Scenery")
-        # We use 'turbo' model for faster, more reliable automation response
-        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, {raw_prompt}")
-        url = f"https://pollinations.ai/p/{clean_prompt}?width=1080&height=1920&seed={datetime.datetime.now().microsecond}&model=turbo"
+        # Added 'Flux' model to the URL for much higher visual quality
+        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, {raw_prompt}")
+        url = f"https://pollinations.ai/p/{clean_prompt}?width=1080&height=1920&seed={datetime.datetime.now().microsecond}&model=flux"
         
         filename = f"scene_{char}.png"
-        success = False
-        
-        for retry in range(2): # Try twice per image
-            try:
-                img_res = requests.get(url, timeout=30)
-                if img_res.status_code == 200 and len(img_res.content) > 10000:
-                    with open(filename, 'wb') as f:
-                        f.write(img_res.content)
-                    image_files.append(filename)
-                    success = True
-                    break
-                else:
-                    print(f"⌛ Server busy for {char}, waiting...")
-                    time.sleep(5)
-            except:
-                time.sleep(5)
-        
-        if not success:
-            print(f"⚠️ Creating fallback for {char}")
-            PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35)).save(filename)
+        try:
+            img_res = requests.get(url, timeout=35)
+            if img_res.status_code == 200 and len(img_res.content) > 20000:
+                with open(filename, 'wb') as f:
+                    f.write(img_res.content)
+                image_files.append(filename)
+            else:
+                raise ValueError("Small/Bad file")
+        except:
+            print(f"⚠️ Fallback background for {char}")
+            PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(filename)
             image_files.append(filename)
-        
-        time.sleep(2) # Gap between requests
+        time.sleep(2)
 
     # 🎬 VIDEO ASSEMBLY
-    print(f"🎬 Rendering {duration:.1f}s sequence...")
+    print(f"🎬 Creating {duration:.1f}s sequence...")
     final_clips = []
     
     for i, img in enumerate(image_files):
         try:
-            # 1. Background Image
-            c = (ImageClip(img)
-                 .set_duration(p_dur)
-                 .set_start(i * p_dur)
-                 .resize(height=1920)
-                 .set_position('center')
-                 .resize(lambda t: 1 + 0.04 * t))
-            final_clips.append(c)
+            # 1. Background (Layer 0)
+            bg = (ImageClip(img)
+                  .set_duration(p_dur)
+                  .set_start(i * p_dur)
+                  .resize(height=1920)
+                  .set_position('center')
+                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
+            final_clips.append(bg)
             
-            # 2. Subtitle ON TOP
+            # 2. Subtitle (Layer 1 - Added after BG to stay on top)
             raw_text = data.get(f'PART_{chars[i]}', "...")
             safe_text = (raw_text[:110] + '...') if len(raw_text) > 110 else raw_text
             
-            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=70, 
+            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=75, 
                             color='yellow' if i % 2 == 0 else 'white', 
                             stroke_color='black', stroke_width=2,
                             method='caption', size=(850, 450))
@@ -140,11 +136,12 @@ def produce():
     except:
         final_audio = voice if voice else None
 
-    # 🚀 FINAL COMPOSE
+    # 🚀 RENDER
     final_video = CompositeVideoClip(final_clips, size=(1080, 1920))
     if final_audio:
         final_video = final_video.set_audio(final_audio)
     
+    # Force duration one last time to prevent the "short cycling" bug
     final_video.set_duration(duration).write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
     # 🚀 YOUTUBE UPLOAD
