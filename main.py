@@ -10,7 +10,6 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
-from google.genai import types
 from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
@@ -29,12 +28,15 @@ LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting classical bible story...")
-    # 🚨 STYLE FIX: Classical biblical storybook illustration & Character Lock
+    # 🚨 FIX: Classical Style + Character Lock + Strict Verbatim Subtitle Rule
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
     First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, beard, and exact traditional clothing.
     Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
+    
+    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE when dividing it into these 4 parts.
+    
     FORMAT: 
     TITLE: [text] 
     SCRIPTURE: [text] 
@@ -61,7 +63,7 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 NAKED PAYLOAD: No modelId, no alchemy. Prevents API crash. Negative prompt blocks anime.
+    # 🚨 NAKED PAYLOAD: Bypasses API crash. Negative prompt blocks anime.
     payload = {
         "height": 1024,
         "width": 576,
@@ -101,7 +103,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Directly ported from TheWorldToday success
+    # 🎙️ AUDIO GENERATION: Stable SDK logic ported from TheWorldToday
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -111,16 +113,16 @@ def produce():
             print(f"  ...Audio Attempt {attempt + 1}/3")
             audio_gen = client_11.text_to_speech.convert(
                 text=data.get('MONOLOGUE'), 
-                voice_id="SAxJUlDKRc79XAyeWyMu", # Biblical Voice
+                voice_id="SAxJUlDKRc79XAyeWyMu", 
                 model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128" # The crucial stable format constraint
+                output_format="mp3_44100_128" # Stable format constraint
             )
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
                     f.write(chunk)
             
-            time.sleep(5) # Buffer to ensure file closes properly
+            time.sleep(5) # Buffer to ensure file saves properly
             voice_clip = AudioFileClip("voice.mp3")
             
             if voice_clip.duration < 15:
@@ -168,23 +170,22 @@ def produce():
                   .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
             final_clips.append(bg)
             
-            # Subtitle Safe Zone Fix (Placed at y=1150)
+            # 🚨 FIX: Uncapped Text, Expanded Box Height (500), Safe Zone Positioning
             char_key = ['A', 'B', 'C', 'D'][i]
-            raw_text = data.get(f'PART_{char_key}', "...")
-            safe_text = (raw_text[:100] + '...') if len(raw_text) > 100 else raw_text
+            raw_text = data.get(f'PART_{char_key}', "...") 
             
-            txt = (TextClip(safe_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=65, 
+            txt = (TextClip(raw_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=60, 
                             color='yellow' if i % 2 == 0 else 'white', 
                             stroke_color='black', stroke_width=3,
-                            method='caption', size=(850, 400))
+                            method='caption', size=(850, 500)) 
                    .set_duration(p_dur)
                    .set_start(i * p_dur)
-                   .set_position(('center', 1150))) 
+                   .set_position(('center', 1100))) 
             final_clips.append(txt)
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
 
-    # 🎛️ AUDIO MIX (Includes your bible_bgm.m4a fallback!)
+    # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music]) if voice else music
