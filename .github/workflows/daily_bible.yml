@@ -2,14 +2,14 @@ name: Biblical Anime Daily Automation
 
 on:
   schedule:
-    # Runs at 08:00 AM UTC to avoid quota collisions with other repos
+    # Runs at 08:00 AM UTC (4:00 PM local time)
     - cron: '0 8 * * *'
-  workflow_dispatch: # Allows you to manually trigger a run for testing
+  workflow_dispatch: # Allows manual triggering for testing
 
 jobs:
   build-and-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30 # Increased to allow for Leonardo rendering time
 
     steps:
       - name: Checkout Repository
@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick ffmpeg > /dev/null
-          # Fixes the security policy that prevents MoviePy from writing text
+          # Fixes ImageMagick policy to allow TextClip rendering
           sudo sed -i 's/domain="path" rights="none" pattern="@\*"/domain="path" rights="read|write" pattern="@\*"/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Libraries
@@ -38,7 +38,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
-          LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }} # ADD THIS LINE
+          LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }}
         run: python main.py
 
       - name: Upload Video Artifact
