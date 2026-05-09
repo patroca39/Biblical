@@ -9,7 +9,6 @@ import PIL.Image
 # --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
-# --------------------------------
 
 from google import genai
 from google.genai import types
@@ -28,7 +27,7 @@ gen_client = genai.Client(
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 def scout_bible_story():
-    print("📖 Scripting anime bible story using Gemini 2.5 Engine...")
+    print("📖 Scripting anime bible story...")
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
@@ -39,21 +38,18 @@ def scout_bible_story():
     PART_C: [text] PROMPT_C: [text]
     PART_D: [text] PROMPT_D: [text]
     """
-    
-    for attempt in range(3):
-        try:
-            res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-            return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
-        except Exception as e:
-            print(f"⚠️ Attempt {attempt+1} failed: {e}")
-            time.sleep(15)
-    return None
+    try:
+        res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
+    except Exception as e:
+        print(f"⚠️ Scripting failed: {e}")
+        return None
 
 def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO
+    # 🎙️ AUDIO GENERATION
     print("🎙️ Generating Narration...")
     audio_gen = client_11.text_to_speech.convert(
         text=data.get('MONOLOGUE'), 
@@ -65,65 +61,66 @@ def produce():
     
     voice = AudioFileClip("voice.mp3")
     duration = voice.duration
-    p_dur = duration / 4 
+    p_dur = duration / 4  # Duration per scene
 
-    # 🎨 IMAGE GENERATION: Pollinations AI with Validation
+    # 🎨 IMAGE GENERATION
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
         print(f"🎨 Pollinations generating scene_{char}...")
         raw_prompt = data.get(f'PROMPT_{char}', "Epic Anime Scenery")
-        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {raw_prompt}")
+        clean_prompt = urllib.parse.quote(f"Epic Shonen Anime Style, {raw_prompt}")
         url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1080&height=1920&nologo=true&seed={datetime.datetime.now().microsecond}"
         
         filename = f"scene_{char}.png"
         try:
             img_res = requests.get(url, timeout=30)
-            if img_res.status_code == 200 and len(img_res.content) > 1000: # Check if it's a real file
-                with open(filename, 'wb') as f:
-                    f.write(img_res.content)
-                image_files.append(filename)
-            else:
-                raise ValueError("Incomplete image data received")
-            time.sleep(3) # Slow down to let server breathe
-        except Exception as e:
-            print(f"⚠️ Scene {char} failed ({e}). Creating fallback.")
-            placeholder = PIL.Image.new('RGB', (1080, 1920), color=(15, 15, 35))
-            placeholder.save(filename)
+            with open(filename, 'wb') as f:
+                f.write(img_res.content)
+            image_files.append(filename)
+            time.sleep(2)
+        except:
+            # Emergency Placeholder
+            PIL.Image.new('RGB', (1080, 1920), color=(20, 20, 40)).save(filename)
             image_files.append(filename)
 
     # 🎬 VIDEO ASSEMBLY
-    print("🎬 Rendering Biblical Masterpiece...")
-    clips = []
+    print(f"🎬 Creating {duration:.1f}s video sequence...")
+    final_clips = []
+    
+    # 1. Create Background Images with Zoom
     for i, img in enumerate(image_files):
-        # We wrap in a try-block to catch the specific 'No Backend' error
-        try:
-            clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
-            clip = clip.resize(lambda t: 1 + 0.04 * t) 
-            clips.append(clip)
-        except Exception as render_err:
-            print(f"❌ Could not process {img}: {render_err}")
-            continue
+        clip = (ImageClip(img)
+                .set_duration(p_dur)
+                .set_start(i * p_dur)
+                .resize(height=1920) # Ensure it fills the vertical screen
+                .set_position('center')
+                .resize(lambda t: 1 + 0.05 * t)) # Clean Ken Burns
+        final_clips.append(clip)
 
-    # ✍️ SUBTITLES
+    # 2. Create Subtitles (Layered ON TOP)
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
-    subs = []
     for i, char in enumerate(chars):
-        txt = TextClip(data.get(f'PART_{char}', "..."), font=font_p, fontsize=85, 
-                       color='yellow' if i%2==0 else 'white', stroke_color='black', stroke_width=2,
-                       method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1450))
-        subs.append(txt)
+        txt_content = data.get(f'PART_{char}', "...")
+        subtitle = (TextClip(txt_content, font=font_p, fontsize=80, 
+                            color='yellow' if i % 2 == 0 else 'white', 
+                            stroke_color='black', stroke_width=2,
+                            method='caption', size=(900, None))
+                   .set_duration(p_dur)
+                   .set_start(i * p_dur)
+                   .set_position(('center', 1400)))
+        final_clips.append(subtitle)
 
-    # 🎛️ AUDIO MIX
+    # 🎛️ AUDIO MIXING
     try:
-        music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
+        music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.15)
         final_audio = CompositeAudioClip([voice, music])
     except:
         final_audio = voice
 
     # 🚀 RENDER
-    final = CompositeVideoClip(clips + subs).set_audio(final_audio).set_duration(duration)
-    final.write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
+    final_video = CompositeVideoClip(final_clips, size=(1080, 1920)).set_audio(final_audio).set_duration(duration)
+    final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
     # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
@@ -135,7 +132,14 @@ def produce():
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=creds)
-            body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': f"{data.get('MONOLOGUE')}\n#bible #anime", 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+            body = {
+                'snippet': {
+                    'title': f"{data.get('TITLE', 'Bible Story')} | {data.get('SCRIPTURE', '')}", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #anime", 
+                    'categoryId': '22'
+                }, 
+                'status': {'privacyStatus': 'public'}
+            }
             youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
             print("✅ SUCCESS!")
         except Exception as e:
