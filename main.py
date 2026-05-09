@@ -4,6 +4,13 @@ import datetime
 import time
 import requests
 import urllib.parse
+import PIL.Image
+
+# --- PILLOW COMPATIBILITY FIX ---
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+# --------------------------------
+
 from google import genai
 from google.genai import types
 from elevenlabs.client import ElevenLabs
@@ -14,7 +21,6 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# Use the exact initialization from your working 'TheWorldToday' repo
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1beta'} 
@@ -34,7 +40,6 @@ def scout_bible_story():
     PART_D: [text] PROMPT_D: [text]
     """
     
-    # Using the working model ID: gemini-2.5-flash
     for attempt in range(3):
         try:
             res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -63,7 +68,7 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: Pollinations AI (Zero Gemini Quota Usage)
+    # 🎨 IMAGE GENERATION: Pollinations AI
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
@@ -80,17 +85,18 @@ def produce():
             image_files.append(filename)
             time.sleep(2)
         except:
-            image_files.append(None) # Handle failure gracefully
+            image_files.append(None)
 
     # 🎬 VIDEO ASSEMBLY
     clips = []
     for i, img in enumerate(image_files):
         if img:
             clip = ImageClip(img).set_duration(p_dur).set_start(i * p_dur).set_position('center')
-            clip = clip.resize(lambda t: 1 + 0.04 * t) # Ken Burns Zoom
+            # Ken Burns effect: This was where the error happened
+            clip = clip.resize(lambda t: 1 + 0.04 * t) 
             clips.append(clip)
 
-    # ✍️ SUBTITLES (Anime Style)
+    # ✍️ SUBTITLES
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
     subs = []
     for i, char in enumerate(chars):
@@ -99,7 +105,7 @@ def produce():
                        method='caption', size=(950, None)).set_duration(p_dur).set_start(i*p_dur).set_position(('center', 1450))
         subs.append(txt)
 
-    # 🎛️ AUDIO MIX (Background Music)
+    # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music])
@@ -110,20 +116,13 @@ def produce():
     final = CompositeVideoClip(clips + subs).set_audio(final_audio).set_duration(duration)
     final.write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 🚀 YOUTUBE UPLOAD (Using your verified creds logic)
+    # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
         print("🚀 Uploading to YouTube...")
         try:
             creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
-            creds = Credentials(
-                token=creds_json.get('token') or creds_json.get('access_token'),
-                refresh_token=creds_json.get('refresh_token'),
-                token_uri=creds_json.get('token_uri'),
-                client_id=creds_json.get('client_id'),
-                client_secret=creds_json.get('client_secret'),
-                scopes=creds_json.get('scopes')
-            )
+            creds = Credentials(**creds_json)
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=creds)
