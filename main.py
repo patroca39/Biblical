@@ -13,19 +13,23 @@ from moviepy.audio.fx.all import audio_loop
 
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
-gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
+# FIX 1: Explicitly set to 'v1' for production stability
+gen_client = genai.Client(
+    api_key=os.getenv('GEMINI_API_KEY'), 
+    http_options={'api_version': 'v1'} 
+)
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 def scout_bible_story():
-    print("📖 Scripting and generating custom Anime prompts...")
+    print("📖 Scripting anime bible story...")
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style' that match PART_A through PART_D.
-    FORMAT: 
-    TITLE: [text] 
-    SCRIPTURE: [text] 
-    MONOLOGUE: [text] 
+    Provide 4 highly detailed IMAGE PROMPTS in 'Epic Shonen Anime Style'.
+    FORMAT: TITLE: [text] SCRIPTURE: [text] MONOLOGUE: [text] 
     PART_A: [text] PROMPT_A: [text]
     PART_B: [text] PROMPT_B: [text]
     PART_C: [text] PROMPT_C: [text]
@@ -37,8 +41,8 @@ def scout_bible_story():
 def produce():
     data = scout_bible_story()
     
-    # 🎙️ AUDIO: Cinematic Voice ID
-    print("🎙️ Generating Cinematic Narration...")
+    # 🎙️ AUDIO: Cinematic Voice ID (SAxJUlDKRc79XAyeWyMu)
+    print("🎙️ Generating Narration...")
     audio_gen = client_11.text_to_speech.convert(
         text=data.get('MONOLOGUE'), 
         voice_id="SAxJUlDKRc79XAyeWyMu", 
@@ -51,18 +55,22 @@ def produce():
     duration = voice.duration
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION: The Fix for 'generate_images'
+    # 🎨 IMAGE GENERATION: The Production-Grade Fix
     image_files = []
     chars = ['A', 'B', 'C', 'D']
     for char in chars:
-        print(f"🎨 Nano Banana 2 generating scene_{char}...")
-        prompt_text = f"Epic Shonen Anime Style, hand-drawn high quality illustration, cinematic lighting, {data.get(f'PROMPT_{char}')}"
+        print(f"🎨 Generating Anime Scene {char}...")
+        prompt_text = f"Epic Shonen Anime Style, hand-drawn illustration, cinematic lighting, {data.get(f'PROMPT_{char}')}"
         
-        # CORRECTED METHOD: generate_images (plural)
+        # FIX 2: Using the stable production model string
         response = gen_client.models.generate_images(
-            model='gemini-3-flash-image',
+            model='imagen-3.0-generate-001', 
             prompt=prompt_text,
-            config=types.GenerateImagesConfig(aspect_ratio="9:16", number_of_images=1)
+            config=types.GenerateImagesConfig(
+                aspect_ratio="9:16", 
+                number_of_images=1,
+                add_watermark=False
+            )
         )
         
         filename = f"scene_{char}.png"
@@ -76,7 +84,7 @@ def produce():
         clip = clip.resize(lambda t: 1 + 0.04 * t) 
         clips.append(clip)
 
-    # ✍️ SUBTITLES (Anime Yellow)
+    # ✍️ SUBTITLES
     font_p = "THEBOLDFONT-FREEVERSION.ttf"
     subs = []
     for i, char in enumerate(chars):
@@ -97,17 +105,10 @@ def produce():
 
     # 🚀 UPLOAD
     if os.path.exists("biblical_export.mp4"):
-        print("🚀 Uploading Custom Anime Story to YouTube...")
+        print("🚀 Uploading to YouTube...")
         creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
         from google.oauth2.credentials import Credentials
-        creds = Credentials(
-            token=creds_json.get('token') or creds_json.get('access_token'),
-            refresh_token=creds_json.get('refresh_token'),
-            token_uri=creds_json.get('token_uri'),
-            client_id=creds_json.get('client_id'),
-            client_secret=creds_json.get('client_secret'),
-            scopes=creds_json.get('scopes')
-        )
+        creds = Credentials(**creds_json)
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
         youtube = build("youtube", "v3", credentials=creds)
