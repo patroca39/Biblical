@@ -27,11 +27,12 @@ client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
-    print("📖 Scripting hyper-realistic bible story...")
+    print("📖 Scripting classical bible story...")
+    # 🚨 FIX: Classical Style + Character Lock + Strict Verbatim Subtitle Rule
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
-    First, write a CHARACTER_DEF (max 15 words) describing the main character's realistic facial features, weathered skin, and historically accurate linen clothing.
+    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, beard, and exact traditional clothing.
     Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
     
     CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE when dividing it into these 4 parts.
@@ -40,11 +41,11 @@ def scout_bible_story():
     TITLE: [text] 
     SCRIPTURE: [text] 
     MONOLOGUE: [text] 
-    CHARACTER_DEF: [facial details, skin texture, specific linen clothing]
-    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, shot on 35mm lens, 8k, action...]
-    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, epic scale, action...]
-    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, dramatic lighting, action...]
-    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, masterpiece, action...]
+    CHARACTER_DEF: [hair color, beard style, specific clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
     """
     try:
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -62,12 +63,12 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 ANATOMY FIX: Heavily reinforced negative prompt for body proportions
+    # 🚨 NAKED PAYLOAD: Bypasses API crash. Negative prompt blocks anime.
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy, perfect human proportions, anatomically correct. {prompt}",
-        "negative_prompt": "anime, manga, illustration, 3d render, plastic skin, deformed anatomy, bad proportions, mismatched limbs, extra limbs, missing limbs, disembodied limbs, elongated body, disconnected limbs, mutated hands, poorly drawn face, distorted face, extra fingers, blurry, out of frame",
+        "prompt": f"Masterpiece, classical biblical storybook illustration, Renaissance oil painting style, traditional art, dramatic lighting, highly detailed face. {prompt}",
+        "negative_prompt": "anime, manga, modern cartoon, pop art, sketch, 3d render, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs",
         "num_images": 1
     }
 
