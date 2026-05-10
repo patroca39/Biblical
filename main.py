@@ -28,14 +28,13 @@ LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_bible_story():
     print("📖 Scripting hyper-realistic bible story...")
-    # 🚨 STYLE FIX: Cinematic Photography & Hyper-realistic instructions.
     prompt = f"""
     Today is {datetime.date.today()}. Select a dramatic Bible story. 
     Write a narration of exactly 75 words.
     First, write a CHARACTER_DEF (max 15 words) describing the main character's realistic facial features, weathered skin, and historically accurate linen clothing.
-    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT.
+    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
     
-    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE.
+    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE when dividing it into these 4 parts.
     
     FORMAT: 
     TITLE: [text] 
@@ -63,13 +62,12 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 STYLE FIX: Base prompt changed to Photorealistic Cinematic. 
-    # Negative prompt aggressively blocks all forms of illustration/anime.
+    # 🚨 ANATOMY FIX: Heavily reinforced negative prompt for body proportions
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy. {prompt}",
-        "negative_prompt": "anime, manga, illustration, drawing, painting, cartoon, sketch, 3d render, CGI, unreal engine, plastic skin, distorted face, poorly drawn eyes, deformed anatomy, extra fingers, blurry, watermark",
+        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy, perfect human proportions, anatomically correct. {prompt}",
+        "negative_prompt": "anime, manga, illustration, 3d render, plastic skin, deformed anatomy, bad proportions, mismatched limbs, extra limbs, missing limbs, disembodied limbs, elongated body, disconnected limbs, mutated hands, poorly drawn face, distorted face, extra fingers, blurry, out of frame",
         "num_images": 1
     }
 
@@ -104,7 +102,7 @@ def produce():
     data = scout_bible_story()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Stable SDK logic from TheWorldToday
+    # 🎙️ AUDIO GENERATION: Stable SDK logic ported from TheWorldToday
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -116,14 +114,14 @@ def produce():
                 text=data.get('MONOLOGUE'), 
                 voice_id="SAxJUlDKRc79XAyeWyMu", 
                 model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128"
+                output_format="mp3_44100_128" # Stable format constraint
             )
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
                     f.write(chunk)
             
-            time.sleep(5) 
+            time.sleep(5) # Buffer to ensure file saves properly
             voice_clip = AudioFileClip("voice.mp3")
             
             if voice_clip.duration < 15:
@@ -132,6 +130,7 @@ def produce():
                 time.sleep(3)
                 continue
                 
+            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
@@ -161,15 +160,16 @@ def produce():
     
     for i, img in enumerate(image_files):
         try:
+            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) 
+                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
             final_clips.append(bg)
             
-            # Verbatim Subtitles, expanded box, Safe Zone
+            # 🚨 FIX: Uncapped Text, Expanded Box Height (500), Safe Zone Positioning
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...") 
             
