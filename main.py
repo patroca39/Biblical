@@ -10,6 +10,7 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
+from google.genai import types # 🚨 Required for the Google Search tool
 from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
@@ -26,29 +27,40 @@ gen_client = genai.Client(
 client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
-def scout_bible_story():
-    print("📖 Scripting classical bible story...")
-    # 🚨 FIX: Classical Style + Character Lock + Strict Verbatim Subtitle Rule
+def scout_daily_gospel():
+    print("📖 Scouting the Gospel of the Day...")
+    
+    # 🚨 GOSPEL SEARCH: Automatically finds today's specific reading
     prompt = f"""
-    Today is {datetime.date.today()}. Select a dramatic Bible story. 
-    Write a narration of exactly 75 words.
-    First, write a CHARACTER_DEF (max 15 words) describing the main character's hair, beard, and exact traditional clothing.
+    Today is {datetime.date.today()}. 
+    Use Google Search to find the official Daily Gospel reading (Catholic or Revised Common Lectionary) for today's exact date.
+    
+    Based ONLY on that specific Gospel reading, write a narration of exactly 75 words.
+    
+    CRITICAL: If the reading is a parable or abstract teaching, focus your IMAGE PROMPTS on the physical metaphors (e.g., sheep, vineyards, storms, seeds) rather than just people talking.
+    
+    First, write a CHARACTER_DEF (max 15 words) describing the main character or metaphor subject with realistic facial features, weathered skin, and historically accurate 1st-century clothing.
     Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
     
-    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE when dividing it into these 4 parts.
+    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE.
     
     FORMAT: 
-    TITLE: [text] 
-    SCRIPTURE: [text] 
+    TITLE: [Daily Gospel for Today's Date]
+    SCRIPTURE: [Book Chapter:Verse] 
     MONOLOGUE: [text] 
-    CHARACTER_DEF: [hair color, beard style, specific clothing]
-    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
-    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Classical biblical illustration style, action...]
+    CHARACTER_DEF: [facial details, skin texture, specific clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, shot on 35mm lens, 8k, action...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, epic scale, action...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, dramatic lighting, action...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, masterpiece, action...]
     """
     try:
-        res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        # Triggering the live search tool
+        res = gen_client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=prompt,
+            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+        )
         return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
     except Exception as e:
         print(f"⚠️ Scripting failed: {e}")
@@ -63,12 +75,12 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 NAKED PAYLOAD: Bypasses API crash. Negative prompt blocks anime.
+    # 🚨 ANATOMY FIX: Aggressive body proportion guardrails
     payload = {
         "height": 1024,
         "width": 576,
-        "prompt": f"Masterpiece, classical biblical storybook illustration, Renaissance oil painting style, traditional art, dramatic lighting, highly detailed face. {prompt}",
-        "negative_prompt": "anime, manga, modern cartoon, pop art, sketch, 3d render, distorted face, poorly drawn eyes, deformed anatomy, ugly, mutated, missing limbs",
+        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy, perfect human proportions, anatomically correct. {prompt}",
+        "negative_prompt": "anime, manga, illustration, 3d render, plastic skin, deformed anatomy, bad proportions, mismatched limbs, extra limbs, missing limbs, disembodied limbs, elongated body, disconnected limbs, mutated hands, poorly drawn face, distorted face, extra fingers, blurry, out of frame",
         "num_images": 1
     }
 
@@ -82,7 +94,6 @@ def generate_leonardo_image(prompt, filename):
             
         gen_id = res_json['sdGenerationJob']['generationId']
         
-        # Poll for completion
         for attempt in range(15):
             time.sleep(6)
             status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -100,10 +111,10 @@ def generate_leonardo_image(prompt, filename):
     return False
 
 def produce():
-    data = scout_bible_story()
+    # 🚨 Swapped to the new Daily Gospel function
+    data = scout_daily_gospel()
     if not data: return
 
-    # 🎙️ AUDIO GENERATION: Stable SDK logic ported from TheWorldToday
     print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
@@ -115,14 +126,14 @@ def produce():
                 text=data.get('MONOLOGUE'), 
                 voice_id="SAxJUlDKRc79XAyeWyMu", 
                 model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128" # Stable format constraint
+                output_format="mp3_44100_128" 
             )
             
             with open("voice.mp3", "wb") as f:
                 for chunk in audio_gen:
                     f.write(chunk)
             
-            time.sleep(5) # Buffer to ensure file saves properly
+            time.sleep(5) 
             voice_clip = AudioFileClip("voice.mp3")
             
             if voice_clip.duration < 15:
@@ -131,7 +142,6 @@ def produce():
                 time.sleep(3)
                 continue
                 
-            # Success
             duration = voice_clip.duration
             voice = voice_clip
             print(f"✅ Voice generated successfully: {duration:.1f}s")
@@ -146,7 +156,6 @@ def produce():
 
     p_dur = duration / 4 
 
-    # 🎨 IMAGE GENERATION
     image_files = []
     for char in ['A', 'B', 'C', 'D']:
         fname = f"scene_{char}.png"
@@ -155,22 +164,19 @@ def produce():
             PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
         image_files.append(fname)
 
-    # 🎬 VIDEO ASSEMBLY
     print(f"🎬 Compiling {duration:.1f}s video...")
     final_clips = []
     
     for i, img in enumerate(image_files):
         try:
-            # Background Layer
             bg = (ImageClip(img)
                   .set_duration(p_dur)
                   .set_start(i * p_dur)
                   .resize(height=1920)
                   .set_position('center')
-                  .resize(lambda t: 1 + 0.04 * t)) # Ken Burns
+                  .resize(lambda t: 1 + 0.04 * t)) 
             final_clips.append(bg)
             
-            # 🚨 FIX: Uncapped Text, Expanded Box Height (500), Safe Zone Positioning
             char_key = ['A', 'B', 'C', 'D'][i]
             raw_text = data.get(f'PART_{char_key}', "...") 
             
@@ -185,7 +191,6 @@ def produce():
         except Exception as e:
             print(f"⚠️ Clip {i} assembly error: {e}")
 
-    # 🎛️ AUDIO MIX
     try:
         music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music]) if voice else music
@@ -193,14 +198,12 @@ def produce():
         print(f"⚠️ Music mix error: {e}")
         final_audio = voice
 
-    # 🚀 FINAL EXPORT
     final_video = CompositeVideoClip(final_clips, size=(1080, 1920))
     if final_audio:
         final_video = final_video.set_audio(final_audio)
     
     final_video.set_duration(duration).write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 🚀 YOUTUBE UPLOAD
     if os.path.exists("biblical_export.mp4"):
         print("🚀 Starting YouTube upload...")
         try:
@@ -213,7 +216,7 @@ def produce():
             body = {
                 'snippet': {
                     'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
-                    'description': f"{data.get('MONOLOGUE')}\n\n#bible #biblestories #shorts", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#dailygospel #biblestories #shorts", 
                     'categoryId': '22'
                 }, 
                 'status': {'privacyStatus': 'public'}
