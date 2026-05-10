@@ -75,13 +75,14 @@ def generate_leonardo_image(prompt, filename):
         "authorization": f"Bearer {LEO_API_KEY}"
     }
     
-    # 🚨 ANATOMY FIX: Aggressive body proportion guardrails
+    # 🚨 THE KINO XL FIX: Uses Leonardo's cinematic human model to fix anatomy glitches
     payload = {
         "height": 1024,
         "width": 576,
         "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy, perfect human proportions, anatomically correct. {prompt}",
         "negative_prompt": "anime, manga, illustration, 3d render, plastic skin, deformed anatomy, bad proportions, mismatched limbs, extra limbs, missing limbs, disembodied limbs, elongated body, disconnected limbs, mutated hands, poorly drawn face, distorted face, extra fingers, blurry, out of frame",
-        "num_images": 1
+        "num_images": 1,
+        "modelId": "aa77f04e-3eec-4034-9c07-d0f619684628" # Leonardo Kino XL
     }
 
     try:
@@ -111,7 +112,6 @@ def generate_leonardo_image(prompt, filename):
     return False
 
 def produce():
-    # 🚨 Swapped to the new Daily Gospel function
     data = scout_daily_gospel()
     if not data: return
 
