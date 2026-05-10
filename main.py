@@ -3,7 +3,6 @@ import json
 import datetime
 import time
 import requests
-import base64
 import PIL.Image
 
 # --- PILLOW COMPATIBILITY FIX ---
@@ -11,266 +10,221 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from google import genai
-from google.genai import types 
+from google.genai import types # 🚨 Required for the Google Search tool
+from elevenlabs.client import ElevenLabs
 from moviepy.config import change_settings
-from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips, ColorClip
+from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip
 from moviepy.audio.fx.all import audio_loop
 
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
+# Initialize Clients
 gen_client = genai.Client(
     api_key=os.getenv('GEMINI_API_KEY'), 
     http_options={'api_version': 'v1beta'} 
 )
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
-PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
+client_11 = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
+LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
-def scout_viral_news():
-    print("🌍 ViralScout is scouting trending global events...")
+def scout_daily_gospel():
+    print("📖 Scouting the Gospel of the Day...")
+    
+    # 🚨 GOSPEL SEARCH: Automatically finds today's specific reading
     prompt = f"""
     Today is {datetime.date.today()}. 
-    Use Google Search to find one major, highly engaging viral current event or trending global news story from the last 24 hours. 
-    Focus on fascinating topics like incredible tech breakthroughs, major pop culture moments, heroic acts, or viral human-interest stories.
+    Use Google Search to find the official Daily Gospel reading (Catholic or Revised Common Lectionary) for today's exact date.
     
-    1. Write a highly engaging, fast-paced narration of exactly 75 words.
-    2. Provide a 3-word Pexels video search query (e.g., "Technology Server Room", "Crowd Cheering Concert").
-    3. Split the monologue EXACTLY verbatim into PART_A, PART_B, PART_C, PART_D.
+    Based ONLY on that specific Gospel reading, write a narration of exactly 75 words.
+    
+    CRITICAL: If the reading is a parable or abstract teaching, focus your IMAGE PROMPTS on the physical metaphors (e.g., sheep, vineyards, storms, seeds) rather than just people talking.
+    
+    First, write a CHARACTER_DEF (max 15 words) describing the main character or metaphor subject with realistic facial features, weathered skin, and historically accurate 1st-century clothing.
+    Provide 4 highly detailed IMAGE PROMPTS. YOU MUST INCLUDE THE EXACT 'CHARACTER_DEF' IN EVERY SINGLE PROMPT to maintain consistency.
+    
+    CRITICAL RULE: PART_A, PART_B, PART_C, and PART_D MUST be exact, verbatim splits of the MONOLOGUE. You must not skip, summarize, or alter a single word from the MONOLOGUE.
     
     FORMAT: 
-    TITLE: [text] 
-    CATEGORY: [text] 
-    QUERY: [3-word search]
+    TITLE: [Daily Gospel for Today's Date]
+    SCRIPTURE: [Book Chapter:Verse] 
     MONOLOGUE: [text] 
-    PART_A: [text] 
-    PART_B: [text] 
-    PART_C: [text] 
-    PART_D: [text] 
+    CHARACTER_DEF: [facial details, skin texture, specific clothing]
+    PART_A: [text] PROMPT_A: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, shot on 35mm lens, 8k, action...]
+    PART_B: [text] PROMPT_B: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, epic scale, action...]
+    PART_C: [text] PROMPT_C: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, dramatic lighting, action...]
+    PART_D: [text] PROMPT_D: [Include CHARACTER_DEF here. Hyper-realistic cinematic photography, masterpiece, action...]
     """
-    res_text = ""
-    for attempt in range(3):
-        try:
-            print(f"Attempting Gemini Search API (Try {attempt + 1}/3)...")
-            res = gen_client.models.generate_content(
-                model='gemini-2.5-flash', 
-                contents=prompt,
-                config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
-            )
-            res_text = res.text
-            break
-        except Exception as e:
-            error_str = str(e)
-            if "503" in error_str or "high demand" in error_str.lower():
-                print(f"⚠️ Gemini servers busy (503). Waiting 30 seconds before retrying...")
-                time.sleep(30)
-            else:
-                print(f"⚠️ Search failed: {e}")
-                break
-
-    if not res_text:
-        print("🚨 Search failed entirely. Using emergency offline generation...")
-        fallback_prompt = f"""
-        Write a highly engaging 75-word viral news story about an incredible, near-future technology breakthrough or a fascinating human achievement.
-        Provide a 3-word Pexels search query (e.g., "Futuristic City Technology").
-        Split the monologue EXACTLY verbatim into PART_A, PART_B, PART_C, PART_D.
-        FORMAT: 
-        TITLE: [text] 
-        CATEGORY: [text] 
-        QUERY: [text]
-        MONOLOGUE: [text] 
-        PART_A: [text] 
-        PART_B: [text] 
-        PART_C: [text] 
-        PART_D: [text] 
-        """
-        try:
-            res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=fallback_prompt)
-            res_text = res.text
-        except Exception as e:
-            print(f"❌ Complete API Failure: {e}")
-            return None
-
-    return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res_text.split('\n') if ':' in line}
-
-def download_pexels_video(query):
-    print(f"📥 Fetching multiple news visuals for: {query}")
-    if not PEXELS_API_KEY:
-        return []
-    headers = {"Authorization": PEXELS_API_KEY}
-    url = f"https://api.pexels.com/videos/search?query={query}&per_page=5&orientation=portrait"
     try:
-        r = requests.get(url, headers=headers).json()
-        clips = []
-        for i, video in enumerate(r.get('videos', [])):
-            v_url = video['video_files'][0]['link']
-            v_name = f"clip_{i}.mp4"
-            with requests.get(v_url, stream=True) as v:
-                with open(v_name, "wb") as f:
-                    for chunk in v.iter_content(chunk_size=1024): f.write(chunk)
-            clips.append(v_name)
-        return clips
+        # Triggering the live search tool
+        res = gen_client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=prompt,
+            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+        )
+        return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in res.text.split('\n') if ':' in line}
     except Exception as e:
-        print(f"⚠️ Pexels error: {e}")
-        return []
+        print(f"⚠️ Scripting failed: {e}")
+        return None
+
+def generate_leonardo_image(prompt, filename):
+    print(f"🎨 Requesting Leonardo render: {prompt[:60]}...")
+    url = "https://cloud.leonardo.ai/api/rest/v1/generations"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": f"Bearer {LEO_API_KEY}"
+    }
+    
+    # 🚨 THE KINO XL FIX: Uses Leonardo's cinematic human model to fix anatomy glitches
+    payload = {
+        "height": 1024,
+        "width": 576,
+        "prompt": f"Hyper-realistic cinematic photography, shot on 35mm lens, 8k resolution, highly detailed skin textures, natural lighting, masterpiece, realistic eyes, historical accuracy, perfect human proportions, anatomically correct. {prompt}",
+        "negative_prompt": "anime, manga, illustration, 3d render, plastic skin, deformed anatomy, bad proportions, mismatched limbs, extra limbs, missing limbs, disembodied limbs, elongated body, disconnected limbs, mutated hands, poorly drawn face, distorted face, extra fingers, blurry, out of frame",
+        "num_images": 1,
+        "modelId": "aa77f04e-3eec-4034-9c07-d0f619684628" # Leonardo Kino XL
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        res_json = response.json()
+        
+        if 'sdGenerationJob' not in res_json:
+            print(f"❌ Leonardo API error: {res_json}")
+            return False
+            
+        gen_id = res_json['sdGenerationJob']['generationId']
+        
+        for attempt in range(15):
+            time.sleep(6)
+            status_res = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
+            images = status_res.get('generations_by_pk', {}).get('generated_images', [])
+            
+            if images:
+                img_data = requests.get(images[0]['url']).content
+                with open(filename, 'wb') as f:
+                    f.write(img_data)
+                print(f"✅ Scene saved: {filename}")
+                return True
+            print(f"  ...rendering ({attempt+1}/15)")
+    except Exception as e:
+        print(f"❌ Leonardo function failed: {e}")
+    return False
 
 def produce():
-    data = scout_viral_news()
+    data = scout_daily_gospel()
     if not data: return
 
-    # 1. PEXELS B-ROLL
-    video_files = download_pexels_video(data.get('QUERY', 'Breaking News'))
-
-    # 2. ADVANCED AUDIO GENERATION (With Word-Level Timestamps)
-    print("🎙️ Generating Narration & Fetching Timestamps...")
+    print("🎙️ Generating Narration...")
     duration = 30.0
     voice = None
-    alignment_data = None
     
     for attempt in range(3):
         try:
-            # 🚨 THE FIX: Direct API call to get exact character timestamps
-            url = f"https://api.elevenlabs.io/v1/text-to-speech/4QLC5fepxZkYmdD2IGRU/with-timestamps"
-            headers = {
-                "xi-api-key": ELEVENLABS_API_KEY,
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "text": data.get('MONOLOGUE'),
-                "model_id": "eleven_multilingual_v2",
-                "output_format": "mp3_44100_128"
-            }
+            print(f"  ...Audio Attempt {attempt + 1}/3")
+            audio_gen = client_11.text_to_speech.convert(
+                text=data.get('MONOLOGUE'), 
+                voice_id="SAxJUlDKRc79XAyeWyMu", 
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128" 
+            )
             
-            response = requests.post(url, json=payload, headers=headers).json()
+            with open("voice.mp3", "wb") as f:
+                for chunk in audio_gen:
+                    f.write(chunk)
             
-            if "audio_base64" in response:
-                audio_bytes = base64.b64decode(response['audio_base64'])
-                with open("voice.mp3", "wb") as f:
-                    f.write(audio_bytes)
+            time.sleep(5) 
+            voice_clip = AudioFileClip("voice.mp3")
+            
+            if voice_clip.duration < 15:
+                print(f"⚠️ Incomplete audio detected ({voice_clip.duration}s). Re-downloading...")
+                voice_clip.close() 
+                time.sleep(3)
+                continue
                 
-                alignment_data = response.get('alignment', {})
-                
-                if os.path.exists("voice.mp3") and os.path.getsize("voice.mp3") > 15000:
-                    voice_clip = AudioFileClip("voice.mp3")
-                    if voice_clip.duration >= 10:
-                        duration = voice_clip.duration
-                        voice = voice_clip
-                        print(f"✅ Voice & Timestamps generated successfully: {duration:.1f}s")
-                        break
-                    else:
-                        voice_clip.close()
-            print("⚠️ ElevenLabs returned a short/error file. Retrying...")
-            time.sleep(3)
+            duration = voice_clip.duration
+            voice = voice_clip
+            print(f"✅ Voice generated successfully: {duration:.1f}s")
+            break
+            
         except Exception as e:
-            print(f"⚠️ ElevenLabs error: {e}")
+            print(f"⚠️ ElevenLabs SDK error: {e}")
             time.sleep(3)
+            
+    if not voice:
+        print("❌ All ElevenLabs attempts failed. Proceeding with background track only.")
 
-    # 3. VIDEO ASSEMBLY
+    p_dur = duration / 4 
+
+    image_files = []
+    for char in ['A', 'B', 'C', 'D']:
+        fname = f"scene_{char}.png"
+        prompt = data.get(f'PROMPT_{char}')
+        if not generate_leonardo_image(prompt, fname):
+            PIL.Image.new('RGB', (1080, 1920), color=(15, 20, 35)).save(fname)
+        image_files.append(fname)
+
     print(f"🎬 Compiling {duration:.1f}s video...")
-    processed_clips = []
-    if video_files:
-        for f in video_files:
-            try:
-                full_clip = VideoFileClip(f).resize(width=1080).without_audio()
-                slice_dur = min(6, full_clip.duration)
-                processed_clips.append(full_clip.subclip(0, slice_dur))
-            except: continue
-
-    if not processed_clips:
-        main_bg = ColorClip(size=(1080, 1920), color=(15, 25, 40)).set_duration(duration)
-    else:
-        final_video_sequence = []
-        current_vid_duration = 0
-        clip_index = 0
-        while current_vid_duration < duration:
-            clip_to_add = processed_clips[clip_index % len(processed_clips)]
-            final_video_sequence.append(clip_to_add)
-            current_vid_duration += clip_to_add.duration
-            clip_index += 1
-        combined_seq = concatenate_videoclips(final_video_sequence, method="compose")
-        main_bg = combined_seq.set_duration(duration) 
-
-    # 4. TIMESTAMP PARSER & POPPING SUBTITLES ENGINE 🚀
-    subs = []
-    font_p = "THEBOLDFONT-FREEVERSION.ttf"
+    final_clips = []
     
-    if alignment_data and 'characters' in alignment_data:
-        chars = alignment_data['characters']
-        starts = alignment_data['character_start_times_seconds']
-        ends = alignment_data['character_end_times_seconds']
-        
-        # Step A: Group Characters into Words
-        words = []
-        current_word = ""
-        start_time = None
-        
-        for idx, char in enumerate(chars):
-            if char.strip() == "": # If it's a space, finalize the word
-                if current_word:
-                    words.append({"text": current_word, "start": start_time, "end": ends[idx-1]})
-                    current_word = ""
-                    start_time = None
-            else:
-                if current_word == "":
-                    start_time = starts[idx]
-                current_word += char
-                
-        if current_word: # Catch the final word
-            words.append({"text": current_word, "start": start_time, "end": ends[-1]})
+    for i, img in enumerate(image_files):
+        try:
+            bg = (ImageClip(img)
+                  .set_duration(p_dur)
+                  .set_start(i * p_dur)
+                  .resize(height=1920)
+                  .set_position('center')
+                  .resize(lambda t: 1 + 0.04 * t)) 
+            final_clips.append(bg)
             
-        # Step B: Group Words into 2-Word Chunks
-        chunk_size = 2
-        for j in range(0, len(words), chunk_size):
-            chunk_words = words[j:j+chunk_size]
-            text = " ".join([w["text"] for w in chunk_words])
-            start = chunk_words[0]["start"]
+            char_key = ['A', 'B', 'C', 'D'][i]
+            raw_text = data.get(f'PART_{char_key}', "...") 
             
-            # The clip stays on screen exactly until the NEXT word starts (seamless visual flow)
-            if j + chunk_size < len(words):
-                end = words[j+chunk_size]["start"]
-            else:
-                end = duration # Last word holds until video ends
-                
-            chunk_dur = end - start
-            
-            # Create the precise TextClip with the pop animation
-            txt = (TextClip(text, font=font_p, fontsize=80, 
-                           color='white' if (j // chunk_size) % 2 == 0 else 'yellow', 
-                           stroke_color='black', stroke_width=4, 
-                           method='caption', size=(900, None))
-                   .set_duration(chunk_dur)
-                   .set_start(start)
-                   .set_position(('center', 1100))
-                   .resize(lambda t: min(1.0, 0.8 + 4*t)))
-            subs.append(txt)
+            txt = (TextClip(raw_text, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=60, 
+                            color='yellow' if i % 2 == 0 else 'white', 
+                            stroke_color='black', stroke_width=3,
+                            method='caption', size=(850, 500)) 
+                   .set_duration(p_dur)
+                   .set_start(i * p_dur)
+                   .set_position(('center', 1100))) 
+            final_clips.append(txt)
+        except Exception as e:
+            print(f"⚠️ Clip {i} assembly error: {e}")
 
-    # 5. AUDIO MIX & EXPORT
     try:
-        music = audio_loop(AudioFileClip("bgm.m4a"), duration=duration).volumex(0.12)
+        music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12)
         final_audio = CompositeAudioClip([voice, music]) if voice else music
-    except: final_audio = voice
+    except Exception as e:
+        print(f"⚠️ Music mix error: {e}")
+        final_audio = voice
 
-    final = CompositeVideoClip([main_bg] + subs).set_audio(final_audio).set_duration(duration)
-    final.write_videofile("viral_export.mp4", fps=24, codec="libx264", audio_codec="aac")
+    final_video = CompositeVideoClip(final_clips, size=(1080, 1920))
+    if final_audio:
+        final_video = final_video.set_audio(final_audio)
+    
+    final_video.set_duration(duration).write_videofile("biblical_export.mp4", fps=24, codec="libx264", audio_codec="aac")
 
-    # 6. YOUTUBE UPLOAD
-    if os.path.exists("viral_export.mp4"):
+    if os.path.exists("biblical_export.mp4"):
         print("🚀 Starting YouTube upload...")
         try:
-            creds_json = json.loads(os.getenv('YOUTUBE_TOKEN_JSON'))
+            creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
             creds = Credentials(**creds_json)
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=creds)
             body = {
-                'snippet': {'title': f"{data.get('TITLE')} | {data.get('CATEGORY', 'Trending')}", 
-                            'description': f"{data.get('MONOLOGUE')}\n\n#viral #trending #news #shorts", 
-                            'categoryId': '25'}, 
+                'snippet': {
+                    'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
+                    'description': f"{data.get('MONOLOGUE')}\n\n#dailygospel #biblestories #shorts", 
+                    'categoryId': '22'
+                }, 
                 'status': {'privacyStatus': 'public'}
             }
-            youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("viral_export.mp4", chunksize=-1, resumable=True)).execute()
+            youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
             print("✅ SUCCESS!")
-        except Exception as e: print(f"❌ YouTube error: {e}")
+        except Exception as e:
+            print(f"❌ YouTube error: {e}")
 
 if __name__ == "__main__":
     produce()
