@@ -1,15 +1,14 @@
-name: Biblical Anime Daily Automation
+name: Curious Lens Daily Automation
 
 on:
   schedule:
-    # Runs at 08:00 AM UTC (4:00 PM local time)
-    - cron: '0 8 * * *'
-  workflow_dispatch: # Allows manual triggering for testing
+    # Runs at 10:00 AM UTC every day
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Allows you to run it manually from the Actions tab
 
 jobs:
-  build-and-render:
+  build-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # Increased to allow for Leonardo rendering time
 
     steps:
       - name: Checkout Repository
@@ -19,32 +18,42 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
-      - name: Install System Dependencies
+      - name: Install System Dependencies (ImageMagick)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y imagemagick ffmpeg > /dev/null
-          # Fixes ImageMagick policy to allow TextClip rendering
-          sudo sed -i 's/domain="path" rights="none" pattern="@\*"/domain="path" rights="read|write" pattern="@\*"/g' /etc/ImageMagick-6/policy.xml
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+          # 🚨 REQUIRED: Overrides security policy to allow TextClip to render subtitles
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
-      - name: Install Python Libraries
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # 🚨 PINNED VERSION: MoviePy 1.0.3 prevents breaking changes. PyJWT added for Kling.
+          pip install requests pillow moviepy==1.0.3 google-genai elevenlabs google-api-python-client google-auth-httplib2 google-auth-oauthlib PyJWT
 
-      - name: Execute Biblical Script
+      - name: Run Video Generation Script
         env:
+          # 🚨 SECRETS MAPPING: Matches your repository secrets perfectly
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }}
-        run: python main.py
+          KLING_AK: ${{ secrets.KLING_AK }}
+          KLING_SK: ${{ secrets.KLING_SK }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+        run: |
+          # 🚨 Make sure this matches the exact name of your python file in the repo.
+          # Change to python scanner.py if you are running the Geopolitics news version.
+          python biblical_scanner.py 
 
-      - name: Upload Video Artifact
-        if: always()
+      - name: Save Video & Assets to GitHub (Artifact Fallback)
         uses: actions/upload-artifact@v4
+        if: always() # 🚨 CRITICAL: Saves files even if the YouTube upload API hits a quota
         with:
-          name: biblical-final-video
-          path: biblical_export.mp4
-          retention-days: 3
+          name: Curious_Lens_Export_Package
+          path: |
+            biblical_export.mp4
+            viral_export.mp4
+            kling_bg.mp4
+            thumbnail_clickbait.png
