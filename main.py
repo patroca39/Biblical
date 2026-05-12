@@ -86,7 +86,10 @@ def generate_leonardo_image(prompt, filename):
 
 def animate_with_leonardo(image_id, filename):
     print(f"🎥 Leonardo Animating Image ID {image_id}...")
-    url = "https://cloud.leonardo.ai/api/rest/v2/generations/motion-svd"
+    
+    # 🚨 THE FIX: Changed from v2 to v1
+    url = "https://cloud.leonardo.ai/api/rest/v1/generations/motion-svd"
+    
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     payload = {
         "imageId": image_id,
