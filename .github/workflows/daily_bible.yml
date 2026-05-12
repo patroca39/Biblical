@@ -34,7 +34,7 @@ jobs:
 
       - name: Run Video Generation Script
         env:
-          # 🚨 SECRETS MAPPING: Matches your repository secrets perfectly
+          # 🚨 SECRETS MAPPING
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -43,17 +43,18 @@ jobs:
           KLING_SK: ${{ secrets.KLING_SK }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
         run: |
-          # 🚨 Make sure this matches the exact name of your python file in the repo.
-          # Change to python scanner.py if you are running the Geopolitics news version.
-          python biblical_scanner.py 
+          # 🚨 Runs the file named main.py
+          python main.py 
 
       - name: Save Video & Assets to GitHub (Artifact Fallback)
         uses: actions/upload-artifact@v4
-        if: always() # 🚨 CRITICAL: Saves files even if the YouTube upload API hits a quota
+        if: always() # Saves files even if the YouTube upload API hits a quota
         with:
           name: Curious_Lens_Export_Package
           path: |
             biblical_export.mp4
-            viral_export.mp4
             kling_bg.mp4
-            thumbnail_clickbait.png
+            scene_A.png
+            scene_B.png
+            scene_C.png
+            scene_D.png
