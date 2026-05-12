@@ -22,24 +22,30 @@ ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_daily_gospel():
-    print("📖 Scouting the Gospel for Leonardo Motion Production...")
+    print("📖 Scouting the Gospel for Cinematic Production...")
     prompt = f"""
-    Today is {datetime.date.today()}. Find the official Daily Gospel reading for today's date.
+    Today is {datetime.date.today()}. Find the official Daily Gospel reading.
     
-    1. Write a 75-word narration.
-    2. Write a CHARACTER_DEF (max 15 words) describing the main character.
-    3. Provide 4 detailed IMAGE PROMPTS (A, B, C, D) for Leonardo AI. Ensure the prompts are cinematic and atmospheric.
+    You are a Hollywood Screenwriter. You must adapt this Gospel reading into a thrilling, 75-word cinematic narrative. 
+    DO NOT write a theological summary. Put the viewer in the scene. 
+    1. HOOK: First 5 words must be high stakes and dramatic.
+    2. STORY: Tell what is happening physically and emotionally in the scene.
+    3. CLIFFHANGER: End with a provocative question.
 
+    VISUAL RULES:
+    Every single image prompt MUST be strictly set in 1st-century Middle Eastern biblical times. 
+    ABSOLUTELY NO modern elements (no modern clothes, no park benches, no modern architecture).
+    
     FORMAT: 
     TITLE: [Daily Gospel]
     SCRIPTURE: [Book Chapter:Verse] 
-    MONOLOGUE: [text] 
-    CHARACTER_DEF: [facial details, clothing]
+    MONOLOGUE: [The 75-word cinematic story] 
+    CHARACTER_DEF: [facial details, 1st-century biblical clothing]
     
-    IMAGE_A: [Include CHARACTER_DEF. Hyper-realistic, 8k...]
-    IMAGE_B: [Include CHARACTER_DEF. Hyper-realistic, 8k...]
-    IMAGE_C: [Include CHARACTER_DEF. Hyper-realistic, 8k...]
-    IMAGE_D: [Include CHARACTER_DEF. Hyper-realistic, 8k...]
+    IMAGE_A: [Include CHARACTER_DEF. 1st-century Jerusalem setting. Hyper-realistic, 8k...]
+    IMAGE_B: [Include CHARACTER_DEF. Biblical era setting. Hyper-realistic, 8k...]
+    IMAGE_C: [Include CHARACTER_DEF. Ancient historical setting. Hyper-realistic, 8k...]
+    IMAGE_D: [Include CHARACTER_DEF. 1st-century setting. Hyper-realistic, 8k...]
     """
     for attempt in range(4):
         try:
@@ -71,10 +77,10 @@ def generate_leonardo_image(prompt, filename):
             status = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images:
-                image_id = images[0]['id'] # Capture the ID for motion generation
+                image_id = images[0]['id'] 
                 image_url = images[0]['url']
                 with open(filename, 'wb') as f: f.write(requests.get(image_url).content)
-                return image_id # Return the ID instead of True
+                return image_id 
     except Exception as e: print(f"❌ Leonardo Image error: {e}")
     return None
 
@@ -84,17 +90,19 @@ def animate_with_leonardo(image_id, filename):
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     payload = {
         "imageId": image_id,
-        "motionStrength": 5 # 1-10 scale. 5 is good for cinematic subtlety.
+        "motionStrength": 5
     }
     try:
         res = requests.post(url, json=payload, headers=headers).json()
-        if 'sdGenerationJob' not in res: return None
+        if 'sdGenerationJob' not in res: 
+            print(f"❌ Leonardo API Rejected Motion Request: {res}")
+            return None
         
         gen_id = res['sdGenerationJob']['generationId']
-        print(f"⏳ Motion Task {gen_id} rendering...")
+        print(f"⏳ Motion Task {gen_id} rendering (This may take up to 4 minutes)...")
         
-        for _ in range(30): # Wait up to 2 minutes
-            time.sleep(5)
+        for _ in range(30): 
+            time.sleep(9)
             status = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images and images[0].get('motionMP4URL'):
@@ -102,6 +110,11 @@ def animate_with_leonardo(image_id, filename):
                 with open(filename, "wb") as f: f.write(requests.get(video_url).content)
                 print(f"✅ Leonardo Animation Saved: {filename}")
                 return filename
+            elif status.get('generations_by_pk', {}).get('status') == 'FAILED':
+                print("❌ Leonardo explicitly failed to render the video on their end.")
+                return None
+                
+        print("⚠️ Leonardo Motion timed out after 4.5 minutes.")
     except Exception as e: print(f"⚠️ Leonardo Motion Error: {e}")
     return None
 
