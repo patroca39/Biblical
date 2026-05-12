@@ -15,6 +15,7 @@ from moviepy.config import change_settings
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip, VideoFileClip, ColorClip, concatenate_videoclips
 from moviepy.audio.fx.all import audio_loop
 
+# --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
 gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
@@ -22,30 +23,32 @@ ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 
 def scout_daily_gospel():
-    print("📖 Scouting the Gospel for Cinematic Production...")
+    print("📖 Scouting the Gospel for a Bright, Epic Production...")
     prompt = f"""
     Today is {datetime.date.today()}. Find the official Daily Gospel reading.
     
-    You are a Hollywood Screenwriter. You must adapt this Gospel reading into a thrilling, 75-word cinematic narrative. 
-    DO NOT write a theological summary. Put the viewer in the scene. 
-    1. HOOK: First 5 words must be high stakes and dramatic.
-    2. STORY: Tell what is happening physically and emotionally in the scene.
-    3. CLIFFHANGER: End with a provocative question.
+    You are a Cinematic Storyteller. Adapt this Gospel into a 75-word epic narrative.
+    
+    - THEME: The vibe must be "HOPEFUL," "MAJESTIC," and "BRIGHT." 
+    - HOOK: The first 5 words must be powerful and awe-inspiring.
+    - STORY: Focus on the light, the promise, and the transformation. 
+    - CLIFFHANGER: The GOLDEN CLIFFHANGER. A positive, forward-looking question that makes the viewer feel inspired.
 
-    VISUAL RULES:
-    Every single image prompt MUST be strictly set in 1st-century Middle Eastern biblical times. 
-    ABSOLUTELY NO modern elements (no modern clothes, no park benches, no modern architecture).
+    VISUAL RULES (STRICT):
+    - SETTING: ONLY 1st-century Ancient Middle East.
+    - LIGHTING: Use "Golden hour," "Radiant light," "Morning sun."
+    - BANNED: No modern elements (no modern chairs, candles, windows, or fabrics).
     
     FORMAT: 
     TITLE: [Daily Gospel]
     SCRIPTURE: [Book Chapter:Verse] 
-    MONOLOGUE: [The 75-word cinematic story] 
-    CHARACTER_DEF: [facial details, 1st-century biblical clothing]
+    MONOLOGUE: [The 75-word hopeful story] 
+    CHARACTER_DEF: [Rugged but kind 1st-century features, eyes full of light, simple hand-woven linen robes]
     
-    IMAGE_A: [Include CHARACTER_DEF. 1st-century Jerusalem setting. Hyper-realistic, 8k...]
-    IMAGE_B: [Include CHARACTER_DEF. Biblical era setting. Hyper-realistic, 8k...]
-    IMAGE_C: [Include CHARACTER_DEF. Ancient historical setting. Hyper-realistic, 8k...]
-    IMAGE_D: [Include CHARACTER_DEF. 1st-century setting. Hyper-realistic, 8k...]
+    IMAGE_A: [Include CHARACTER_DEF. Glowing golden sunrise over ancient stone. Hyper-realistic, 8k...]
+    IMAGE_B: [Include CHARACTER_DEF. Faces lit with joy and wonder. Hyper-realistic, 8k...]
+    IMAGE_C: [Include CHARACTER_DEF. A moment of profound peace. Hyper-realistic, 8k...]
+    IMAGE_D: [Include CHARACTER_DEF. An epic, bright landscape of hope. Hyper-realistic, 8k...]
     """
     for attempt in range(4):
         try:
@@ -66,7 +69,7 @@ def generate_leonardo_image(prompt, filename):
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     payload = {
         "height": 1024, "width": 576, 
-        "prompt": f"Hyper-realistic cinematic photography, 8k. {prompt}",
+        "prompt": f"Hyper-realistic cinematic photography, 8k, majestic lighting. {prompt}",
         "num_images": 1, "modelId": "aa77f04e-3eec-4034-9c07-d0f619684628", "alchemy": True
     }
     try:
@@ -86,24 +89,14 @@ def generate_leonardo_image(prompt, filename):
 
 def animate_with_leonardo(image_id, filename):
     print(f"🎥 Leonardo Animating Image ID {image_id}...")
-    
-    # 🚨 THE FIX: Changed from v2 to v1
+    # CORRECTED URL (v1)
     url = "https://cloud.leonardo.ai/api/rest/v1/generations/motion-svd"
-    
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
-    payload = {
-        "imageId": image_id,
-        "motionStrength": 5
-    }
+    payload = {"imageId": image_id, "motionStrength": 5}
     try:
         res = requests.post(url, json=payload, headers=headers).json()
-        if 'sdGenerationJob' not in res: 
-            print(f"❌ Leonardo API Rejected Motion Request: {res}")
-            return None
-        
+        if 'sdGenerationJob' not in res: return None
         gen_id = res['sdGenerationJob']['generationId']
-        print(f"⏳ Motion Task {gen_id} rendering (This may take up to 4 minutes)...")
-        
         for _ in range(30): 
             time.sleep(9)
             status = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
@@ -113,11 +106,6 @@ def animate_with_leonardo(image_id, filename):
                 with open(filename, "wb") as f: f.write(requests.get(video_url).content)
                 print(f"✅ Leonardo Animation Saved: {filename}")
                 return filename
-            elif status.get('generations_by_pk', {}).get('status') == 'FAILED':
-                print("❌ Leonardo explicitly failed to render the video on their end.")
-                return None
-                
-        print("⚠️ Leonardo Motion timed out after 4.5 minutes.")
     except Exception as e: print(f"⚠️ Leonardo Motion Error: {e}")
     return None
 
@@ -140,9 +128,7 @@ def produce():
                 with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
                 alignment_data = res_api.get('alignment', {})
                 if os.path.exists("voice.mp3"):
-                    voice = AudioFileClip("voice.mp3")
-                    duration = voice.duration
-                    break
+                    voice = AudioFileClip("voice.mp3"); duration = voice.duration; break
         except: time.sleep(3)
 
     # 2. GENERATE & ANIMATE ASSETS
@@ -151,33 +137,19 @@ def produce():
     video_clips = []
 
     for char in ['A', 'B', 'C', 'D']:
-        img_name = f"scene_{char}.png"
-        vid_name = f"scene_{char}.mp4"
-        
-        # Step A: Leonardo Base Image (Returns ID)
+        img_name = f"scene_{char}.png"; vid_name = f"scene_{char}.mp4"
         image_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_name)
-        
-        # Step B: Leonardo Animation
-        animated_path = None
-        if image_id:
-            animated_path = animate_with_leonardo(image_id, vid_name)
+        animated_path = animate_with_leonardo(image_id, vid_name) if image_id else None
 
-        # Step C: Clip Assembly with Fallbacks
         try:
             if animated_path and os.path.exists(animated_path):
-                # SUCCESS: Leonardo generated a video. Loop it to match segment length.
                 clip = VideoFileClip(animated_path).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur)
             elif image_id:
-                # FALLBACK 1: Motion failed, but image worked.
-                print(f"⚠️ Using static image fallback for Scene {char}")
                 clip = ImageClip(img_name).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t)
             else:
-                # FALLBACK 2: Everything failed.
                 clip = ColorClip(size=(1080, 1920), color=(15, 20, 30)).set_duration(seg_dur)
-            
             video_clips.append(clip)
-        except Exception as e:
-            print(f"❌ Error assembling Scene {char}: {e}")
+        except:
             video_clips.append(ColorClip(size=(1080, 1920), color=(15, 20, 30)).set_duration(seg_dur))
 
     main_v = concatenate_videoclips(video_clips, method="compose")
@@ -192,10 +164,9 @@ def produce():
             if char.strip() == "": 
                 if current_word: words.append({"text": current_word, "start": start_time, "end": ends[idx-1]}); current_word, start_time = "", None
             else:
-                if current_word == "": start_time = starts[idx]
+                if not current_word: start_time = starts[idx]
                 current_word += char
         if current_word: words.append({"text": current_word, "start": start_time, "end": ends[-1]})
-
         for j in range(0, len(words), 2):
             chunk = words[j:j+2]; txt_str = " ".join([w["text"] for w in chunk]).upper()
             s = chunk[0]["start"]; e = words[j+2]["start"] if j+2 < len(words) else duration
@@ -204,16 +175,13 @@ def produce():
     cta = TextClip("SUBSCRIBE FOR MORE", font=font_p, fontsize=65, color='black', bg_color='yellow', size=(850, 110)).set_duration(5).set_start(duration-5.5).set_position(('center', 1650))
 
     # 4. AUDIO MIX & EXPORT
-    print("🎛️ Rendering Final Video...")
     try: music = audio_loop(AudioFileClip("bible_bgm.m4a"), duration=duration).volumex(0.12); final_audio = CompositeAudioClip([voice, music]) if voice else music
     except: final_audio = voice
-
     final_video = CompositeVideoClip([main_v] + subs + [cta], size=(1080, 1920)).set_audio(final_audio).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast", threads=4)
 
     # 5. UPLOAD
     if os.path.exists("biblical_export.mp4"):
-        print("🚀 Starting YouTube upload...")
         try:
             creds_json = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
