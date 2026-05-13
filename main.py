@@ -94,18 +94,18 @@ def generate_leonardo_image(prompt, filename):
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     
-    # 🚨 SWITCHED TO VISION XL FOR STABILITY
+    # 🚨 PHOENIX MODEL - UNIVERSAL COMPATIBILITY
     payload = {
         "height": 1024, "width": 576, 
-        "prompt": f"{prompt}, high quality anime art style, vibrant colors", 
-        "modelId": "5c232a9e-9b42-42c4-ad6c-60d95074f07e", 
+        "prompt": f"{prompt}, high quality professional anime art, clean lines", 
+        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042", # LEONARDO PHOENIX
         "alchemy": True,
-        "presetStyle": "ANIME"
+        "contrastRatio": 1.2
     }
     try:
         response = requests.post(url, json=payload, headers=headers).json()
         if 'sdGenerationJob' not in response:
-            print(f"❌ API Error Response: {response}")
+            print(f"❌ API Error: {response}")
             return None
             
         gen_id = response['sdGenerationJob']['generationId']
@@ -144,7 +144,6 @@ def produce():
     data = scout_daily_gospel(style)
     if not data: return
 
-    # 🎬 VIDEO PIPELINE FIRST (To prevent wasting Audio credits if images fail)
     print("⚙️ Checking Image API Health...")
     duration_approx = 35.0
     seg_dur = duration_approx / 4 
@@ -165,12 +164,10 @@ def produce():
         else:
             print(f"⚠️ Scene {char} failed.")
 
-    # 🚨 KILL SWITCH: If 0 images were generated, stop the script.
     if images_captured == 0:
-        print("❌ CRITICAL: No images were generated. Check Leonardo credits/API status. Stopping production.")
+        print("❌ CRITICAL: No images were generated. Stopping production.")
         return
 
-    # 🎙️ AUDIO GENERATION (Only happens if images are actually there)
     print("🎙️ Images Secured. Generating Voice...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
@@ -182,7 +179,6 @@ def produce():
         duration = voice.duration
     except: return
 
-    # 🚀 EXPORT
     final_video = concatenate_videoclips(video_clips, method="compose").set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
@@ -194,8 +190,8 @@ def produce():
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
             body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': data.get('VERBATIM_VERSE'), 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-            youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
-            sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), response.get('id'), style.split(' (')[0]])
+            resp = youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
+            sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), resp.get('id'), style.split(' (')[0]])
         except Exception as e: print(f"❌ Upload Failed: {e}")
 
 if __name__ == "__main__":
