@@ -94,13 +94,13 @@ def generate_leonardo_image(prompt, filename):
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     
-    # 🚨 PHOENIX MODEL - UNIVERSAL COMPATIBILITY
+    # 🚨 FIXED: contrastRatio is now 0.8 (Must be between 0 and 1)
     payload = {
         "height": 1024, "width": 576, 
         "prompt": f"{prompt}, high quality professional anime art, clean lines", 
-        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042", # LEONARDO PHOENIX
+        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042", # Phoenix
         "alchemy": True,
-        "contrastRatio": 1.2
+        "contrastRatio": 0.8 
     }
     try:
         response = requests.post(url, json=payload, headers=headers).json()
@@ -134,6 +134,7 @@ def animate_with_leonardo(image_id, filename):
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images and images[0].get('motionMP4URL'):
                 with open(filename, "wb") as f: f.write(requests.get(images[0]['motionMP4URL']).content)
+                print(f"✅ Saved {filename}")
                 return filename
     except: return None
 
@@ -159,7 +160,7 @@ def produce():
             animated = animate_with_leonardo(img_id, vid_fn)
             if animated and os.path.exists(animated):
                 video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
-            else:
+            elif os.path.exists(img_fn):
                 video_clips.append(ImageClip(img_fn).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
         else:
             print(f"⚠️ Scene {char} failed.")
