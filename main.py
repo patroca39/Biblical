@@ -40,16 +40,11 @@ def get_next_style(sheet):
     try:
         records = sheet.get_all_records()
         if not records: return ANIME_STYLES[0]
-        
-        # Looks at Column F (Art_Style) in the last row
         last_style_name = records[-1].get('Art_Style', '')
-        
-        # Find index in our library
         try:
             current_idx = [s.split(' (')[0] for s in ANIME_STYLES].index(last_style_name)
             next_idx = (current_idx + 1) % len(ANIME_STYLES)
         except: next_idx = 0
-            
         return ANIME_STYLES[next_idx]
     except: return ANIME_STYLES[0]
 
@@ -130,7 +125,6 @@ def animate_with_leonardo(image_id, filename):
 def produce():
     sheet = get_memory()
     if not sheet: return
-    
     style = get_next_style(sheet)
     data = scout_daily_gospel(style)
     if not data: return
@@ -142,21 +136,26 @@ def produce():
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu/with-timestamps", 
                                 json={"text": full_text, "model_id": "eleven_multilingual_v2"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
-        with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
+        with open("voice.mp3", "wb") as f: f.write(base64.decodebytes(res_api['audio_base64'].encode()))
         voice = AudioFileClip("voice.mp3")
         duration = voice.duration
     except: return
 
-    # 🎬 VIDEO
+    # 🎬 VIDEO ASSEMBLY
     seg_dur = duration / 4 
     video_clips = []
     for char in ['A', 'B', 'C', 'D']:
-        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), f"scene_{char}.png")
-        animated = animate_with_leonardo(img_id, f"scene_{char}.mp4") if img_id else None
+        img_filename = f"scene_{char}.png"
+        vid_filename = f"scene_{char}.mp4"
+        
+        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_filename)
+        animated = animate_with_leonardo(img_id, vid_filename) if img_id else None
+        
+        # 🚨 FIXED FILENAME LOGIC BELOW
         if animated:
             video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
         else:
-            video_clips.append(ImageClip(f"scene_{char}.png").set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
+            video_clips.append(ImageClip(img_filename).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
 
     # 🚀 EXPORT & LOG
     final_video = concatenate_videoclips(video_clips, method="compose").set_audio(voice).set_duration(duration)
@@ -164,7 +163,6 @@ def produce():
 
     if os.path.exists("biblical_export.mp4"):
         try:
-            # YouTube Logic
             creds_data = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
@@ -172,10 +170,7 @@ def produce():
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
             body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': data.get('VERBATIM_VERSE'), 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
             response = youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
-            
-            # Log with Art_Style in Column F
             sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), response.get('id'), style.split(' (')[0]])
-            print(f"✅ Success! Style: {style}")
         except Exception as e: print(f"❌ Failed: {e}")
 
 if __name__ == "__main__":
