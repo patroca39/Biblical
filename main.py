@@ -57,9 +57,7 @@ def get_memory():
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SPREADSHEET_ID).sheet1
         return sheet
-    except Exception as e:
-        print(f"❌ Sheet Auth Error: {e}")
-        return None
+    except: return None
 
 def scout_daily_gospel(art_style):
     print(f"📖 Scouting Gospel with {art_style}...")
@@ -71,7 +69,7 @@ def scout_daily_gospel(art_style):
     4. CLIFFHANGER: Bright, hopeful question.
     
     ART STYLE: Render every image in the style of {art_style}.
-    SETTING: Strictly 1st-century Middle East. No modern elements.
+    SETTING: Strictly 1st-century Middle East.
 
     FORMAT:
     TITLE: [text]
@@ -95,17 +93,28 @@ def generate_leonardo_image(prompt, filename):
     print(f"🎨 Rendering: {filename}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
-    payload = {"height": 1024, "width": 576, "prompt": f"{prompt}, high quality anime art, vibrant", "modelId": "e71a9514-6997-4014-a931-6e1d6c81ca47", "alchemy": True}
+    
+    # 🚨 SWITCHED TO VISION XL FOR STABILITY
+    payload = {
+        "height": 1024, "width": 576, 
+        "prompt": f"{prompt}, high quality anime art style, vibrant colors", 
+        "modelId": "5c232a9e-9b42-42c4-ad6c-60d95074f07e", 
+        "alchemy": True,
+        "presetStyle": "ANIME"
+    }
     try:
         response = requests.post(url, json=payload, headers=headers).json()
+        if 'sdGenerationJob' not in response:
+            print(f"❌ API Error Response: {response}")
+            return None
+            
         gen_id = response['sdGenerationJob']['generationId']
         for _ in range(15):
-            time.sleep(6)
+            time.sleep(7)
             status = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images:
-                img_data = requests.get(images[0]['url']).content
-                with open(filename, 'wb') as f: f.write(img_data)
+                with open(filename, 'wb') as f: f.write(requests.get(images[0]['url']).content)
                 print(f"✅ Saved {filename}")
                 return images[0]['id']
     except Exception as e: print(f"❌ Image Error: {e}")
@@ -117,6 +126,7 @@ def animate_with_leonardo(image_id, filename):
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     try:
         res = requests.post(url, json={"imageId": image_id, "motionStrength": 4}, headers=headers).json()
+        if 'sdGenerationJob' not in res: return None
         gen_id = res['sdGenerationJob']['generationId']
         for _ in range(25):
             time.sleep(10)
@@ -124,7 +134,6 @@ def animate_with_leonardo(image_id, filename):
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images and images[0].get('motionMP4URL'):
                 with open(filename, "wb") as f: f.write(requests.get(images[0]['motionMP4URL']).content)
-                print(f"✅ Saved {filename}")
                 return filename
     except: return None
 
@@ -135,40 +144,45 @@ def produce():
     data = scout_daily_gospel(style)
     if not data: return
 
-    # 🎙️ AUDIO
+    # 🎬 VIDEO PIPELINE FIRST (To prevent wasting Audio credits if images fail)
+    print("⚙️ Checking Image API Health...")
+    duration_approx = 35.0
+    seg_dur = duration_approx / 4 
+    video_clips = []
+    
+    images_captured = 0
+    for char in ['A', 'B', 'C', 'D']:
+        img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
+        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_fn)
+        
+        if img_id:
+            images_captured += 1
+            animated = animate_with_leonardo(img_id, vid_fn)
+            if animated and os.path.exists(animated):
+                video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
+            else:
+                video_clips.append(ImageClip(img_fn).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
+        else:
+            print(f"⚠️ Scene {char} failed.")
+
+    # 🚨 KILL SWITCH: If 0 images were generated, stop the script.
+    if images_captured == 0:
+        print("❌ CRITICAL: No images were generated. Check Leonardo credits/API status. Stopping production.")
+        return
+
+    # 🎙️ AUDIO GENERATION (Only happens if images are actually there)
+    print("🎙️ Images Secured. Generating Voice...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
-    print("🎙️ Generating Voice...")
     try:
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu/with-timestamps", 
                                 json={"text": full_text, "model_id": "eleven_multilingual_v2"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
-        # Fixed base64 decoding for Python 3.11+
         with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
         voice = AudioFileClip("voice.mp3")
         duration = voice.duration
-    except Exception as e: 
-        print(f"❌ Audio Error: {e}")
-        return
+    except: return
 
-    # 🎬 VIDEO ASSEMBLY
-    seg_dur = duration / 4 
-    video_clips = []
-    for char in ['A', 'B', 'C', 'D']:
-        img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
-        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_fn)
-        animated = animate_with_leonardo(img_id, vid_fn) if img_id else None
-        
-        # 🚨 HARD CHECK: Ensure file exists before MoviePy tries to open it
-        if animated and os.path.exists(animated):
-            video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
-        elif os.path.exists(img_fn):
-            video_clips.append(ImageClip(img_fn).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
-        else:
-            # Absolute fallback if AI generation completely failed
-            print(f"⚠️ Scene {char} failed completely. Using fallback color.")
-            video_clips.append(ColorClip(size=(1080, 1920), color=(20, 20, 30)).set_duration(seg_dur))
-
-    # 🚀 EXPORT & LOG
+    # 🚀 EXPORT
     final_video = concatenate_videoclips(video_clips, method="compose").set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
@@ -180,9 +194,8 @@ def produce():
             from googleapiclient.http import MediaFileUpload
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
             body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': data.get('VERBATIM_VERSE'), 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-            response = youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
+            youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
             sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), response.get('id'), style.split(' (')[0]])
-            print("✅ Production Finished Successfully!")
         except Exception as e: print(f"❌ Upload Failed: {e}")
 
 if __name__ == "__main__":
