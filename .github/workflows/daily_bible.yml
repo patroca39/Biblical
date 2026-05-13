@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs at 10:00 AM UTC every day
     - cron: '0 10 * * *'
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
   build-and-upload:
@@ -23,37 +23,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y imagemagick
-          # 🚨 REQUIRED: Overrides security policy to allow TextClip to render subtitles
+          # Policy override to allow TextClip rendering
           sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          # 🚨 PINNED VERSION: MoviePy 1.0.3 prevents breaking changes. PyJWT added for Kling.
-          pip install requests pillow moviepy==1.0.3 google-genai elevenlabs google-api-python-client google-auth-httplib2 google-auth-oauthlib PyJWT
+          # Added gspread and oauth2client for Google Sheets integration
+          pip install requests pillow moviepy==1.0.3 google-genai elevenlabs \
+          google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+          PyJWT gspread oauth2client
 
       - name: Run Video Generation Script
         env:
-          # 🚨 SECRETS MAPPING
+          # --- API KEYS ---
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }}
-          KLING_AK: ${{ secrets.KLING_AK }}
-          KLING_SK: ${{ secrets.KLING_SK }}
+          
+          # --- GOOGLE SHEETS MEMORY ---
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GOOGLE_SHEETS_JSON: ${{ secrets.GOOGLE_SHEETS_JSON }}
+          
+          # --- YOUTUBE AUTH ---
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
         run: |
-          # 🚨 Runs the file named main.py
+          # Executes your master script
           python main.py 
 
-      - name: Save Video & Assets to GitHub (Artifact Fallback)
+      - name: Save Video & Assets to GitHub
         uses: actions/upload-artifact@v4
-        if: always() # Saves files even if the YouTube upload API hits a quota
+        if: always()
         with:
           name: Curious_Lens_Export_Package
           path: |
             biblical_export.mp4
-            kling_bg.mp4
             scene_A.png
             scene_B.png
             scene_C.png
