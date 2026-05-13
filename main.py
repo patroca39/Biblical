@@ -93,21 +93,15 @@ def generate_leonardo_image(prompt, filename):
     print(f"🎨 Rendering: {filename}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
-    
-    # 🚨 FIXED: contrastRatio is now 0.8 (Must be between 0 and 1)
     payload = {
         "height": 1024, "width": 576, 
-        "prompt": f"{prompt}, high quality professional anime art, clean lines", 
-        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042", # Phoenix
+        "prompt": f"{prompt}, professional anime style, clean lines", 
+        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
         "alchemy": True,
-        "contrastRatio": 0.8 
+        "contrastRatio": 0.8
     }
     try:
         response = requests.post(url, json=payload, headers=headers).json()
-        if 'sdGenerationJob' not in response:
-            print(f"❌ API Error: {response}")
-            return None
-            
         gen_id = response['sdGenerationJob']['generationId']
         for _ in range(15):
             time.sleep(7)
@@ -117,8 +111,7 @@ def generate_leonardo_image(prompt, filename):
                 with open(filename, 'wb') as f: f.write(requests.get(images[0]['url']).content)
                 print(f"✅ Saved {filename}")
                 return images[0]['id']
-    except Exception as e: print(f"❌ Image Error: {e}")
-    return None
+    except: return None
 
 def animate_with_leonardo(image_id, filename):
     print(f"🎥 Animating Frame {image_id}...")
@@ -126,7 +119,6 @@ def animate_with_leonardo(image_id, filename):
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     try:
         res = requests.post(url, json={"imageId": image_id, "motionStrength": 4}, headers=headers).json()
-        if 'sdGenerationJob' not in res: return None
         gen_id = res['sdGenerationJob']['generationId']
         for _ in range(25):
             time.sleep(10)
@@ -134,7 +126,6 @@ def animate_with_leonardo(image_id, filename):
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images and images[0].get('motionMP4URL'):
                 with open(filename, "wb") as f: f.write(requests.get(images[0]['motionMP4URL']).content)
-                print(f"✅ Saved {filename}")
                 return filename
     except: return None
 
@@ -145,42 +136,56 @@ def produce():
     data = scout_daily_gospel(style)
     if not data: return
 
-    print("⚙️ Checking Image API Health...")
-    duration_approx = 35.0
-    seg_dur = duration_approx / 4 
-    video_clips = []
-    
-    images_captured = 0
-    for char in ['A', 'B', 'C', 'D']:
-        img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
-        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_fn)
-        
-        if img_id:
-            images_captured += 1
-            animated = animate_with_leonardo(img_id, vid_fn)
-            if animated and os.path.exists(animated):
-                video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
-            elif os.path.exists(img_fn):
-                video_clips.append(ImageClip(img_fn).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
-        else:
-            print(f"⚠️ Scene {char} failed.")
-
-    if images_captured == 0:
-        print("❌ CRITICAL: No images were generated. Stopping production.")
-        return
-
-    print("🎙️ Images Secured. Generating Voice...")
+    # 🎙️ AUDIO & ALIGNMENT
+    print("🎙️ Generating Voice & Timestamps...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu/with-timestamps", 
                                 json={"text": full_text, "model_id": "eleven_multilingual_v2"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
         with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
+        alignment_data = res_api.get('alignment', {})
         voice = AudioFileClip("voice.mp3")
         duration = voice.duration
     except: return
 
-    final_video = concatenate_videoclips(video_clips, method="compose").set_audio(voice).set_duration(duration)
+    # 🎬 VIDEO ASSEMBLY
+    seg_dur = duration / 4 
+    video_clips = []
+    for char in ['A', 'B', 'C', 'D']:
+        img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
+        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_fn)
+        animated = animate_with_leonardo(img_id, vid_fn) if img_id else None
+        
+        if animated and os.path.exists(animated):
+            video_clips.append(VideoFileClip(animated).resize(height=1920).crop(width=1080, height=1920).without_audio().loop(duration=seg_dur).subclip(0, seg_dur))
+        elif os.path.exists(img_fn):
+            video_clips.append(ImageClip(img_fn).set_duration(seg_dur).resize(height=1920).crop(width=1080, height=1920).resize(lambda t: 1 + 0.03 * t))
+        else:
+            video_clips.append(ColorClip(size=(1080, 1920), color=(20, 20, 30)).set_duration(seg_dur))
+
+    main_v = concatenate_videoclips(video_clips, method="compose")
+
+    # 📝 SUBTITLES (RE-INTEGRATED)
+    subs = []
+    if alignment_data:
+        chars, starts, ends = alignment_data['characters'], alignment_data['character_start_times_seconds'], alignment_data['character_end_times_seconds']
+        words, curr, s_t = [], "", None
+        for idx, char in enumerate(chars):
+            if char.strip() == "": 
+                if curr: words.append({"text": curr, "start": s_t, "end": ends[idx-1]}); curr, s_t = "", None
+            else:
+                if not curr: s_t = starts[idx]
+                curr += char
+        if curr: words.append({"text": curr, "start": s_t, "end": ends[-1]})
+        
+        for j in range(0, len(words), 2):
+            chunk = words[j:j+2]; txt_str = " ".join([w["text"] for w in chunk]).upper()
+            s, e = chunk[0]["start"], (words[j+2]["start"] if j+2 < len(words) else duration)
+            subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
+
+    # 🚀 EXPORT & LOG
+    final_video = CompositeVideoClip([main_v] + subs).set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
     if os.path.exists("biblical_export.mp4"):
