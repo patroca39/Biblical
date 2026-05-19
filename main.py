@@ -1,4 +1,3 @@
-from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
 import os
 import json
 import datetime
@@ -9,6 +8,10 @@ import PIL.Image
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+# --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
+from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
+
+# --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
@@ -36,8 +39,33 @@ ANIME_STYLES = [
     "90s Retro Anime (Cowboy Bebop style, cel-shaded, film grain)"
 ]
 
+def check_idempotency_state(sheet):
+    """
+    Idempotency Layer: Inspects Google Sheets to confirm if today's date
+    has already been registered. Prevents costly API generation loops.
+    """
+    try:
+        logger.info("Verifying global pipeline idempotency execution state...")
+        records = sheet.get_all_records()
+        if not records:
+            return False
+            
+        today_str = str(datetime.date.today())
+        # Iterate through the sheet to look for today's date row
+        for row in records:
+            # Assumes your first column tracks dates as strings or matching headers
+            if any(str(val) == today_str for val in row.values()):
+                logger.warning(f"🛑 Idempotency Barrier Triggered: Content already generated & logged for {today_str}. Exiting runner cleanly.")
+                return True
+                
+        logger.info("Idempotency Validation: PASS. Ready to begin production run.")
+        return False
+    except Exception as e:
+        logger.error(f"Idempotency validation engine failed: {e}. Defaulting to run for safety.")
+        return False
+
 def get_next_style(sheet):
-    print("🎨 Cycling Art Styles...")
+    logger.info("Art Direction: Cycling historical anime art profiles...")
     try:
         records = sheet.get_all_records()
         if not records: return ANIME_STYLES[0]
@@ -47,10 +75,12 @@ def get_next_style(sheet):
             next_idx = (current_idx + 1) % len(ANIME_STYLES)
         except: next_idx = 0
         return ANIME_STYLES[next_idx]
-    except: return ANIME_STYLES[0]
+    except Exception as e:
+        logger.error(f"Style engine failure: {e}. Defaulting to primary asset template.")
+        return ANIME_STYLES[0]
 
 def get_memory():
-    print("🧠 Reading Sheet Memory...")
+    logger.info("Database: Initializing remote Google Sheets persistence client...")
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = json.loads(os.getenv('GOOGLE_SHEETS_JSON'))
@@ -58,17 +88,19 @@ def get_memory():
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SPREADSHEET_ID).sheet1
         return sheet
-    except: return None
+    except Exception as e:
+        logger.error(f"Failed to securely tie into Google Sheets persistence: {e}")
+        return None
 
 def scout_daily_gospel(art_style):
-    print(f"📖 Scouting Gospel with {art_style}...")
+    logger.info(f"Intelligence: Scouting daily Gospel liturgical data with style target: {art_style}...")
     prompt = f"""
     Today is {datetime.date.today()}. Find the official Daily Gospel.
     1. TITLE: Create a "Curiosity Gap" title.
     2. VERBATIM_VERSE: Provide the verbatim Bible text (60-80 words).
     3. HOOK: 5-word dramatic intro.
     4. CLIFFHANGER: Bright, hopeful question.
-    
+    	
     ART STYLE: Render every image in the style of {art_style}.
     SETTING: Strictly 1st-century Middle East.
 
@@ -88,10 +120,12 @@ def scout_daily_gospel(art_style):
         res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]))
         cleaned = res.text.replace('**', '')
         return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in cleaned.split('\n') if ':' in line}
-    except: return None
+    except Exception as e:
+        logger.error(f"Gemini Liturgical Scouting Model failure: {e}")
+        return None
 
 def generate_leonardo_image(prompt, filename):
-    print(f"🎨 Rendering: {filename}...")
+    logger.info(f"Leonardo AI: Dispensing render compute call for {filename}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     payload = {
@@ -110,12 +144,14 @@ def generate_leonardo_image(prompt, filename):
             images = status.get('generations_by_pk', {}).get('generated_images', [])
             if images:
                 with open(filename, 'wb') as f: f.write(requests.get(images[0]['url']).content)
-                print(f"✅ Saved {filename}")
+                logger.info(f"✅ Asset saved to storage filesystem: {filename}")
                 return images[0]['id']
-    except: return None
+    except Exception as e:
+        logger.error(f"Leonardo image generation engine failure on prompt ({prompt[:30]}): {e}")
+        return None
 
 def animate_with_leonardo(image_id, filename):
-    print(f"🎥 Animating Frame {image_id}...")
+    logger.info(f"Leonardo Motion SVD: Rendering video dynamics for Frame ID: {image_id}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations/motion-svd"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     try:
@@ -128,17 +164,28 @@ def animate_with_leonardo(image_id, filename):
             if images and images[0].get('motionMP4URL'):
                 with open(filename, "wb") as f: f.write(requests.get(images[0]['motionMP4URL']).content)
                 return filename
-    except: return None
+    except Exception as e:
+        logger.warning(f"Leonardo SVD motion processing timed out or failed for asset {image_id}: {e}. Falling back to standard panning.")
+        return None
 
 def produce():
     sheet = get_memory()
-    if not sheet: return
+    if not sheet: 
+        logger.critical("Aborting sequence. Google Sheet infrastructure unreachable.")
+        return
+        
+    # 🛑 INTEGRATED LAYER 5 STATE TRACKING
+    if check_idempotency_state(sheet):
+        return
+
     style = get_next_style(sheet)
     data = scout_daily_gospel(style)
-    if not data: return
+    if not data:
+        send_telegram_alert("Gospel tracking module could not parse data entries today.", context="ERROR")
+        return
 
     # 🎙️ AUDIO & ALIGNMENT
-    print("🎙️ Generating Voice & Timestamps...")
+    logger.info("ElevenLabs: Communicating text-to-speech rendering pipeline request...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu/with-timestamps", 
@@ -148,7 +195,11 @@ def produce():
         alignment_data = res_api.get('alignment', {})
         voice = AudioFileClip("voice.mp3")
         duration = voice.duration
-    except: return
+    except Exception as e:
+        err_msg = f"ElevenLabs infrastructure engine connection failure: {e}"
+        logger.error(err_msg)
+        send_telegram_alert(err_msg, context="ERROR")
+        return
 
     # 🎬 VIDEO ASSEMBLY
     seg_dur = duration / 4 
@@ -167,7 +218,7 @@ def produce():
 
     main_v = concatenate_videoclips(video_clips, method="compose")
 
-    # 📝 SUBTITLES (RE-INTEGRATED)
+    # 📝 SUBTITLES
     subs = []
     if alignment_data:
         chars, starts, ends = alignment_data['characters'], alignment_data['character_start_times_seconds'], alignment_data['character_end_times_seconds']
@@ -185,21 +236,42 @@ def produce():
             s, e = chunk[0]["start"], (words[j+2]["start"] if j+2 < len(words) else duration)
             subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
 
-    # 🚀 EXPORT & LOG
+    # 🚀 EXPORT
+    logger.info("MoviePy: Compiling timeline matrices, exporting h.264 wrapper allocation map...")
     final_video = CompositeVideoClip([main_v] + subs).set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
+    # 🚀 ROBUST DEPLOYMENT WITH LOGGING & BACKOFF RETRIES
     if os.path.exists("biblical_export.mp4"):
+        logger.info("Export file generated. Initializing production upload sequence...")
         try:
             creds_data = json.loads(os.getenv('YOUTUBE_CREDENTIALS'))
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
+            
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
-            body = {'snippet': {'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 'description': data.get('VERBATIM_VERSE'), 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-            resp = youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)).execute()
+            body = {
+                'snippet': {
+                    'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
+                    'description': data.get('VERBATIM_VERSE'), 
+                    'categoryId': '22'
+                }, 
+                'status': {'privacyStatus': 'public'}
+            }
+            media_file = MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)
+            
+            # Executing our robust backoff/retry engine loop from utils.py
+            resp = execute_youtube_upload_with_backoff(youtube, body, media_file)
+            
+            # Log back to Google Sheet database for history integrity
             sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), resp.get('id'), style.split(' (')[0]])
-        except Exception as e: print(f"❌ Upload Failed: {e}")
+            logger.info("Successfully registered transaction to Google sheet database registry.")
+            
+        except Exception as e:
+            upload_err = f"Pipeline upload sequence crashed completely: {e}"
+            logger.error(upload_err)
+            send_telegram_alert(upload_err, context="ERROR")
 
 if __name__ == "__main__":
     produce()
