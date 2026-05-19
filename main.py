@@ -51,9 +51,7 @@ def check_idempotency_state(sheet):
             return False
             
         today_str = str(datetime.date.today())
-        # Iterate through the sheet to look for today's date row
         for row in records:
-            # Assumes your first column tracks dates as strings or matching headers
             if any(str(val) == today_str for val in row.values()):
                 logger.warning(f"🛑 Idempotency Barrier Triggered: Content already generated & logged for {today_str}. Exiting runner cleanly.")
                 return True
@@ -94,13 +92,21 @@ def get_memory():
 
 def scout_daily_gospel(art_style):
     logger.info(f"Intelligence: Scouting daily Gospel liturgical data with style target: {art_style}...")
+    
     prompt = f"""
     Today is {datetime.date.today()}. Find the official Daily Gospel.
     1. TITLE: Create a "Curiosity Gap" title.
     2. VERBATIM_VERSE: Provide the verbatim Bible text (60-80 words).
-    3. HOOK: 5-word dramatic intro.
-    4. CLIFFHANGER: Bright, hopeful question.
-    	
+    3. HOOK: A 5-word highly dramatic, cinematic introduction.
+    4. CLIFFHANGER: A bright, hopeful, piercing question.
+
+    🚨 NATIVE ELEVENLABS EMOTION TAGGING RULE:
+    You must format the narration text for HOOK, VERBATIM_VERSE, and CLIFFHANGER using explicit ElevenLabs audio tags to inject powerful emotional connection.
+    - Preface highly dramatic, intense, or critical moments with an appropriate delivery tag like <Whispering>, <Grave>, <Emotional>, or <Intense>.
+    - Use transitions like <Warm> or <Hopeful> when moving from structural descriptions or solemn moments into bright, spiritual promises.
+    - Example formatting syntax to enforce: "<Grave> The storm raged against the small vessel... <Intense> but with a single word, everything changed."
+    - Keep sentence syntax rhythmic, utilizing ellipses (...) and em-dashes (—) alongside the voice tags for ultimate immersion.
+
     ART STYLE: Render every image in the style of {art_style}.
     SETTING: Strictly 1st-century Middle East.
 
@@ -174,7 +180,7 @@ def produce():
         logger.critical("Aborting sequence. Google Sheet infrastructure unreachable.")
         return
         
-    # 🛑 INTEGRATED LAYER 5 STATE TRACKING
+    # 🛑 LAYER 5 STATE TRACKING
     if check_idempotency_state(sheet):
         return
 
@@ -188,7 +194,8 @@ def produce():
     logger.info("ElevenLabs: Communicating text-to-speech rendering pipeline request...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
-        res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/SAxJUlDKRc79XAyeWyMu/with-timestamps", 
+        # 🚨 VOICE ID UPDATED HERE
+        res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/VCgLBmBjldJmfphyB8sZ/with-timestamps", 
                                 json={"text": full_text, "model_id": "eleven_multilingual_v2"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
         with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
