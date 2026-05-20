@@ -1,4 +1,13 @@
 import os
+import sys
+import re
+
+# 🚨 RUNNER SYSTEM PATH FIX: Forces Python to recognize the local directory workspace
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
+from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
+
 import json
 import datetime
 import time
@@ -7,9 +16,6 @@ import base64
 import PIL.Image
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-
-# --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
-from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
 
 # --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
@@ -40,10 +46,6 @@ ANIME_STYLES = [
 ]
 
 def check_idempotency_state(sheet):
-    """
-    Idempotency Layer: Inspects Google Sheets to confirm if today's date
-    has already been registered. Prevents costly API generation loops.
-    """
     try:
         logger.info("Verifying global pipeline idempotency execution state...")
         records = sheet.get_all_records()
@@ -102,9 +104,9 @@ def scout_daily_gospel(art_style):
 
     🚨 NATIVE ELEVENLABS EMOTION TAGGING RULE:
     You must format the narration text for HOOK, VERBATIM_VERSE, and CLIFFHANGER using explicit ElevenLabs audio tags to inject powerful emotional connection.
-    - Preface highly dramatic, intense, or critical moments with an appropriate delivery tag like <Whispering>, <Grave>, <Emotional>, or <Intense>.
-    - Use transitions like <Warm> or <Hopeful> when moving from structural descriptions or solemn moments into bright, spiritual promises.
-    - Example formatting syntax to enforce: "<Grave> The storm raged against the small vessel... <Intense> but with a single word, everything changed."
+    - Preface highly dramatic, intense, or critical moments with an appropriate delivery tag wrapped in SQUARE BRACKETS like [whispers], [grave], [emotional], or [intense].
+    - Use transitions like [warm] or [hopeful] when moving from structural descriptions or solemn moments into bright, spiritual promises.
+    - Example formatting syntax to enforce: "[grave] The storm raged against the small vessel... [intense] but with a single word, everything changed."
     - Keep sentence syntax rhythmic, utilizing ellipses (...) and em-dashes (—) alongside the voice tags for ultimate immersion.
 
     ART STYLE: Render every image in the style of {art_style}.
@@ -194,9 +196,9 @@ def produce():
     logger.info("ElevenLabs: Communicating text-to-speech rendering pipeline request...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
-        # 🚨 VOICE ID UPDATED HERE
+        # 🚨 VOICE ID & V3 MODEL UPGRADED HERE
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/VCgLBmBjldJmfphyB8sZ/with-timestamps", 
-                                json={"text": full_text, "model_id": "eleven_multilingual_v2"}, 
+                                json={"text": full_text, "model_id": "eleven_v3"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
         with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
         alignment_data = res_api.get('alignment', {})
@@ -225,7 +227,7 @@ def produce():
 
     main_v = concatenate_videoclips(video_clips, method="compose")
 
-    # 📝 SUBTITLES
+    # 📝 SUBTITLES WITH REGEX CLEANUP
     subs = []
     if alignment_data:
         chars, starts, ends = alignment_data['characters'], alignment_data['character_start_times_seconds'], alignment_data['character_end_times_seconds']
@@ -240,12 +242,27 @@ def produce():
         
         for j in range(0, len(words), 2):
             chunk = words[j:j+2]; txt_str = " ".join([w["text"] for w in chunk]).upper()
+            
+            # 🚨 Automatically strips out any [tags] so they don't appear on screen
+            txt_str = re.sub(r'\[.*?\]', '', txt_str).strip()
+            if not txt_str:
+                continue
+                
             s, e = chunk[0]["start"], (words[j+2]["start"] if j+2 < len(words) else duration)
             subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
 
+    # 🚀 LEGAL JOURNALISTIC SOURCE WATERMARK OVERLAY
+    source_text = f"EDITORIAL: DAILY GOSPEL / VISUALS: LEONARDO AI"
+    source_clip = (TextClip(source_text, font="Impact", fontsize=28, 
+                            color='white', stroke_color='black', stroke_width=1, method='caption', size=(750, None))
+                   .set_duration(duration)
+                   .set_start(0)
+                   .set_opacity(0.5) 
+                   .set_position((50, 80)))
+
     # 🚀 EXPORT
     logger.info("MoviePy: Compiling timeline matrices, exporting h.264 wrapper allocation map...")
-    final_video = CompositeVideoClip([main_v] + subs).set_audio(voice).set_duration(duration)
+    final_video = CompositeVideoClip([main_v, source_clip] + subs).set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
     # 🚀 ROBUST DEPLOYMENT WITH LOGGING & BACKOFF RETRIES
@@ -258,10 +275,25 @@ def produce():
             from googleapiclient.http import MediaFileUpload
             
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
+            
+            # 🚨 Clean the description payload using Regex to remove [tags] before YouTube sees them
+            clean_description = re.sub(r'\[.*?\]', '', data.get('VERBATIM_VERSE')).strip()
+            
+            fair_use_desc = (
+                f"{clean_description}\n\n"
+                f"📖 Content & Media Citations:\n"
+                f"- Scripture Data: Official Daily Gospel\n"
+                f"- Visual Elements: Managed via Leonardo AI / Historical Recreation\n\n"
+                f"⚖️ COPYRIGHT SAFE HARBOR & FAIR USE STATEMENT:\n"
+                f"This video contains transformative, commentary, and educational analysis. "
+                f"All assets are utilized under Fair Use guidelines for religious review purposes.\n\n"
+                f"#dailygospel #faith #shorts"
+            )
+            
             body = {
                 'snippet': {
                     'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
-                    'description': data.get('VERBATIM_VERSE'), 
+                    'description': fair_use_desc, 
                     'categoryId': '22'
                 }, 
                 'status': {'privacyStatus': 'public'}
