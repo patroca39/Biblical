@@ -1,8 +1,11 @@
 name: Automated Video Production Pipeline
 
 on:
+  # 🕒 Runs automatically every day (Example: 12:00 PM UTC / 8:00 AM EST)
   schedule:
     - cron: '0 12 * * *'
+  
+  # 🚀 Allows you to trigger the workflow manually from the GitHub Actions tab
   workflow_dispatch:
 
 jobs:
@@ -26,15 +29,16 @@ jobs:
 
       - name: Fix ImageMagick Policy for MoviePy
         run: |
+          # MoviePy requires modifying the default ImageMagick security policy to render text
           sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
 
-      # 🚨 THE FIX: Explicitly installing every required library including gspread
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install google-genai moviepy requests gspread oauth2client pillow google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install -r requirements.txt
 
       - name: Execute Production Script (main.py)
+        # 🚨 THE CRITICAL ENV BLOCK: Injects all GitHub Secrets into Python's os.getenv()
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
