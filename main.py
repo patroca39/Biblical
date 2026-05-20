@@ -1,13 +1,6 @@
 import os
 import sys
 import re
-
-# 🚨 RUNNER SYSTEM PATH FIX: Forces Python to recognize the local directory workspace
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
-from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
-
 import json
 import datetime
 import time
@@ -16,6 +9,12 @@ import base64
 import PIL.Image
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+
+# 🚨 RUNNER SYSTEM PATH FIX: Forces Python to recognize the local directory workspace
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
+from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
 
 # --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
@@ -276,11 +275,15 @@ def produce():
             
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
             
-            # 🚨 Clean the description payload using Regex to remove [tags] before YouTube sees them
-            clean_description = re.sub(r'\[.*?\]', '', data.get('VERBATIM_VERSE')).strip()
+            # 🚨 BULLETPROOF CLEANER: Strips all brackets < > [ ] from metadata
+            raw_title = f"{data.get('TITLE')} | {data.get('SCRIPTURE')}"
+            safe_title = re.sub(r'[\[\]<>]', '', raw_title).strip()
+            
+            raw_verse = data.get('VERBATIM_VERSE', '')
+            safe_verse = re.sub(r'[\[\]<>]', '', raw_verse).strip()
             
             fair_use_desc = (
-                f"{clean_description}\n\n"
+                f"{safe_verse}\n\n"
                 f"📖 Content & Media Citations:\n"
                 f"- Scripture Data: Official Daily Gospel\n"
                 f"- Visual Elements: Managed via Leonardo AI / Historical Recreation\n\n"
@@ -292,7 +295,7 @@ def produce():
             
             body = {
                 'snippet': {
-                    'title': f"{data.get('TITLE')} | {data.get('SCRIPTURE')}", 
+                    'title': safe_title, 
                     'description': fair_use_desc, 
                     'categoryId': '22'
                 }, 
