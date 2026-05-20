@@ -96,16 +96,17 @@ def scout_daily_gospel(art_style):
     
     prompt = f"""
     Today is {datetime.date.today()}. Find the official Daily Gospel.
-    1. TITLE: Create a "Curiosity Gap" title.
-    2. VERBATIM_VERSE: Provide the verbatim Bible text (60-80 words).
-    3. HOOK: A 5-word highly dramatic, cinematic introduction.
-    4. CLIFFHANGER: A bright, hopeful, piercing question.
+    
+    1. SCRIPTURE: The exact book, chapter, and verse (e.g., John 3:16).
+    2. TITLE: Create a "Curiosity Gap" title.
+    3. HOOK: Must strictly follow this format: "[audio tag] Book Chapter:Verse — TITLE". (Example: "[warm] John 3:16 — The Ultimate Promise.")
+    4. VERBATIM_VERSE: Provide the STRICTLY verbatim Bible text (60-80 words). Do not paraphrase or summarize a single word.
+    5. CLIFFHANGER: A positive, highly encouraging, and intriguing closing thought. NEVER use doubtful, questioning, or pessimistic phrasing (e.g., do not say "Can his truth really save us?"). Instead, build faith, affirmation, and wonder (Example: "[hopeful] His promise is already moving in your life today... will you step into the light?").
 
     🚨 NATIVE ELEVENLABS EMOTION TAGGING RULE:
     You must format the narration text for HOOK, VERBATIM_VERSE, and CLIFFHANGER using explicit ElevenLabs audio tags to inject powerful emotional connection.
     - Preface highly dramatic, intense, or critical moments with an appropriate delivery tag wrapped in SQUARE BRACKETS like [whispers], [grave], [emotional], or [intense].
-    - Use transitions like [warm] or [hopeful] when moving from structural descriptions or solemn moments into bright, spiritual promises.
-    - Example formatting syntax to enforce: "[grave] The storm raged against the small vessel... [intense] but with a single word, everything changed."
+    - Use transitions like [warm], [uplifting], or [hopeful] when moving from structural descriptions or solemn moments into bright, spiritual promises.
     - Keep sentence syntax rhythmic, utilizing ellipses (...) and em-dashes (—) alongside the voice tags for ultimate immersion.
 
     ART STYLE: Render every image in the style of {art_style}.
