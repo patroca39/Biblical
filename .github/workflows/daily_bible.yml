@@ -1,63 +1,55 @@
-name: Curious Lens Daily Automation
+name: Automated Video Production Pipeline
 
 on:
+  # 🕒 Runs automatically every day (Example: 12:00 PM UTC / 8:00 AM EST)
   schedule:
-    - cron: '15 11 * * *'  # 7:15 AM EST / 7:15 PM PHT
+    - cron: '0 12 * * *'
+  
+  # 🚀 Allows you to trigger the workflow manually from the GitHub Actions tab
   workflow_dispatch:
 
 jobs:
-  build-and-upload:
+  build-and-publish:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install System Dependencies (ImageMagick)
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick
-          # Policy override to allow TextClip rendering
-          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+          sudo apt-get install -y imagemagick ffmpeg
+
+      - name: Fix ImageMagick Policy for MoviePy
+        run: |
+          # MoviePy requires modifying the default ImageMagick security policy to render text
+          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Added gspread and oauth2client for Google Sheets integration
-          pip install requests pillow moviepy==1.0.3 google-genai elevenlabs \
-          google-api-python-client google-auth-httplib2 google-auth-oauthlib \
-          PyJWT gspread oauth2client
+          # Assuming you have a requirements.txt. If not, replace this line with: 
+          # pip install google-genai moviepy requests gspread oauth2client pillow
+          pip install -r requirements.txt
 
-      - name: Run Video Generation Script
+      - name: Execute Production Script (main.py)
+        # 🚨 THE CRITICAL ENV BLOCK: Injects all GitHub Secrets into Python's os.getenv()
         env:
-          # --- API KEYS ---
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           LEONARDO_API_KEY: ${{ secrets.LEONARDO_API_KEY }}
-          
-          # --- GOOGLE SHEETS MEMORY ---
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GOOGLE_SHEETS_JSON: ${{ secrets.GOOGLE_SHEETS_JSON }}
-          
-          # --- YOUTUBE AUTH ---
-          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Executes your master script
-          python main.py 
-
-      - name: Save Video & Assets to GitHub
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Curious_Lens_Export_Package
-          path: |
-            biblical_export.mp4
-            scene_A.png
-            scene_B.png
-            scene_C.png
-            scene_D.png
+          python main.py
