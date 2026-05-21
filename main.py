@@ -8,13 +8,14 @@ import requests
 import base64
 import PIL.Image
 import gspread
+
 from oauth2client.service_account import ServiceAccountCredentials
 
 # 🚨 RUNNER SYSTEM PATH FIX: Forces Python to recognize the local directory workspace
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
-from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
+from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff, trigger_n8n_omnichannel_webhook
 
 # --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
