@@ -1,10 +1,3 @@
-Here is the complete, final version of your **`utils.py`** file.
-
-This version includes your production-grade logging, the Telegram alerting system, the YouTube exponential backoff engine, and the brand-new n8n omnichannel webhook trigger we just designed.
-
-Save this exactly as `utils.py` in your repository.
-
-```python
 import os
 import time
 import logging
