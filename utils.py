@@ -42,7 +42,7 @@ def send_telegram_alert(message: str, context: str = "ERROR"):
         "text": f"{emoji} *Pipeline Alert \\[{context}\\]*\n\n`{safe_message}`",
         "parse_mode": "MarkdownV2"
     }
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TELEGRAM_BOT_TOKEN}/sendMessage"
     
     try:
         response = requests.post(url, json=payload, timeout=10)
@@ -134,5 +134,3 @@ def trigger_n8n_omnichannel_webhook(video_path: str, title: str, description: st
         err_msg = f"Failed to connect to n8n webhook: {e}"
         logger.error(err_msg)
         send_telegram_alert(err_msg, context="ERROR")
-
-```
