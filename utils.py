@@ -1,3 +1,10 @@
+Here is the complete, final version of your **`utils.py`** file.
+
+This version includes your production-grade logging, the Telegram alerting system, the YouTube exponential backoff engine, and the brand-new n8n omnichannel webhook trigger we just designed.
+
+Save this exactly as `utils.py` in your repository.
+
+```python
 import os
 import time
 import logging
@@ -52,7 +59,7 @@ def send_telegram_alert(message: str, context: str = "ERROR"):
         logger.error(f"Telegram webhook connection failure: {e}")
 
 # =====================================================================
-# ROBUST EXCEPTION HANDLING & EXPONENTIAL BACKOFF
+# ROBUST EXCEPTION HANDLING & EXPONENTIAL BACKOFF (YouTube)
 # =====================================================================
 def execute_youtube_upload_with_backoff(youtube_client, body, media_file, max_retries=5):
     """Executes a YouTube upload utilizing exponential backoff for network/rate errors."""
@@ -95,3 +102,44 @@ def execute_youtube_upload_with_backoff(youtube_client, body, media_file, max_re
     logger.critical(fatal_msg)
     send_telegram_alert(fatal_msg, context="CRITICAL")
     raise TimeoutError(fatal_msg)
+
+# =====================================================================
+# OMNICHANNEL DISTRIBUTION GATEWAY (n8n)
+# =====================================================================
+def trigger_n8n_omnichannel_webhook(video_path: str, title: str, description: str):
+    """
+    Pushes the completed video binary and metadata to your self-hosted n8n instance
+    for cross-platform social distribution (Instagram, Facebook, TikTok).
+    """
+    n8n_webhook_url = os.getenv("N8N_WEBHOOK_URL")
+    
+    if not n8n_webhook_url:
+        logger.warning("N8N_WEBHOOK_URL is missing. Skipping omnichannel distribution.")
+        return
+
+    logger.info("Omnichannel Gateway: Transmitting asset to n8n orchestration server...")
+    
+    try:
+        with open(video_path, 'rb') as video_file:
+            # We send the video as a binary file, and the metadata as standard form fields
+            files = {'video': (os.path.basename(video_path), video_file, 'video/mp4')}
+            data = {
+                'title': title,
+                'description': description,
+                'platforms': 'instagram,facebook,tiktok' # Tells n8n where to route it
+            }
+            
+            response = requests.post(n8n_webhook_url, files=files, data=data, timeout=120)
+            
+            if response.status_code == 200:
+                logger.info("✅ Asset successfully received by n8n. Omnichannel distribution initiated.")
+            else:
+                logger.error(f"n8n Webhook rejected the payload: Status {response.status_code} - {response.text}")
+                send_telegram_alert(f"n8n Webhook rejection: {response.status_code}", context="ERROR")
+                
+    except Exception as e:
+        err_msg = f"Failed to connect to n8n webhook: {e}"
+        logger.error(err_msg)
+        send_telegram_alert(err_msg, context="ERROR")
+
+```
