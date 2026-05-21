@@ -311,6 +311,17 @@ def produce():
             # Log back to Google Sheet database for history integrity
             sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), resp.get('id'), style.split(' (')[0]])
             logger.info("Successfully registered transaction to Google sheet database registry.")
+
+            # =====================================================================
+            # 5. OMNICHANNEL DISTRIBUTION (n8n Webhook)
+            # =====================================================================
+            logger.info("Initializing n8n webhook sequence...")
+            trigger_n8n_omnichannel_webhook(
+                video_path="biblical_export.mp4",
+                title=safe_title,
+                description=fair_use_desc
+            )
+            logger.info("Pipeline execution completely finished.")
             
         except Exception as e:
             upload_err = f"Pipeline upload sequence crashed completely: {e}"
