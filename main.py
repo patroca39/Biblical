@@ -15,7 +15,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
-from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff, trigger_n8n_omnichannel_webhook
+# Notice we removed trigger_n8n_omnichannel_webhook to handle it natively with binary data below
+from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
 
 # --- PILLOW COMPATIBILITY FIX ---
 if not hasattr(PIL.Image, 'ANTIALIAS'):
@@ -102,7 +103,7 @@ def scout_daily_gospel(art_style):
     2. TITLE: Create a "Curiosity Gap" title.
     3. HOOK: Must strictly follow this format: "[audio tag] Book Chapter:Verse — TITLE". (Example: "[warm] John 3:16 — The Ultimate Promise.")
     4. VERBATIM_VERSE: Provide the STRICTLY verbatim Bible text (60-80 words). Do not paraphrase or summarize a single word.
-    5. CLIFFHANGER: A positive, highly encouraging, and intriguing closing thought. NEVER use doubtful, questioning, or pessimistic phrasing (e.g., do not say "Can his truth really save us?"). Instead, build faith, affirmation, and wonder (Example: "[hopeful] His promise is already moving in your life today... will you step into the light?").
+    5. CLIFFHANGER: A positive, highly encouraging, and intriguing closing thought. NEVER use doubtful, questioning, or pessimistic phrasing. Instead, build faith, affirmation, and wonder (Example: "[hopeful] His promise is already moving in your life today... will you step into the light?").
 
     🚨 NATIVE ELEVENLABS EMOTION TAGGING RULE:
     You must format the narration text for HOOK, VERBATIM_VERSE, and CLIFFHANGER using explicit ElevenLabs audio tags to inject powerful emotional connection.
@@ -156,7 +157,7 @@ def generate_leonardo_image(prompt, filename):
                 logger.info(f"✅ Asset saved to storage filesystem: {filename}")
                 return images[0]['id']
     except Exception as e:
-        logger.error(f"Leonardo image generation engine failure on prompt ({prompt[:30]}): {e}")
+        logger.error(f"Leonardo image engine failure on prompt: {e}")
         return None
 
 def animate_with_leonardo(image_id, filename):
@@ -174,8 +175,34 @@ def animate_with_leonardo(image_id, filename):
                 with open(filename, "wb") as f: f.write(requests.get(images[0]['motionMP4URL']).content)
                 return filename
     except Exception as e:
-        logger.warning(f"Leonardo SVD motion processing timed out or failed for asset {image_id}: {e}. Falling back to standard panning.")
+        logger.warning(f"Leonardo SVD motion processing timed out: {e}. Falling back to standard panning.")
         return None
+
+def push_to_n8n_webhook(video_path, title, description):
+    """
+    Sends the video file natively via multipart/form-data so n8n can directly 
+    upload the binary file to Facebook without needing file path access.
+    """
+    webhook_url = os.getenv('N8N_WEBHOOK_URL')
+    if not webhook_url:
+        logger.warning("No N8N_WEBHOOK_URL found. Skipping omnichannel push.")
+        return
+        
+    logger.info("Transmitting video binary payload to n8n omnichannel webhook for Facebook...")
+    try:
+        with open(video_path, 'rb') as f:
+            # Package as standard multipart form data
+            files = {'file': (os.path.basename(video_path), f, 'video/mp4')}
+            data = {'title': title, 'description': description}
+            
+            response = requests.post(webhook_url, files=files, data=data)
+            
+        if response.status_code == 200:
+            logger.info("✅ Successfully transferred binary payload to n8n pipeline!")
+        else:
+            logger.warning(f"⚠️ n8n Webhook returned status {response.status_code}: {response.text}")
+    except Exception as e:
+        logger.error(f"Failed to push binary data to n8n webhook: {e}")
 
 def produce():
     sheet = get_memory()
@@ -197,10 +224,14 @@ def produce():
     logger.info("ElevenLabs: Communicating text-to-speech rendering pipeline request...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
-        # 🚨 VOICE ID & V3 MODEL UPGRADED HERE
         res_api = requests.post("https://api.elevenlabs.io/v1/text-to-speech/VCgLBmBjldJmfphyB8sZ/with-timestamps", 
                                 json={"text": full_text, "model_id": "eleven_v3"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
+        
+        # Explicit Quota Catch
+        if 'audio_base64' not in res_api:
+            raise KeyError(f"Missing audio data (Quota Exceeded or API Error). Response: {res_api}")
+            
         with open("voice.mp3", "wb") as f: f.write(base64.b64decode(res_api['audio_base64']))
         alignment_data = res_api.get('alignment', {})
         voice = AudioFileClip("voice.mp3")
@@ -216,7 +247,11 @@ def produce():
     video_clips = []
     for char in ['A', 'B', 'C', 'D']:
         img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
-        img_id = generate_leonardo_image(data.get(f'IMAGE_{char}'), img_fn)
+        
+        # Fallback safeguard in case Gemini drops an image tag
+        safe_prompt = data.get(f'IMAGE_{char}') or f"1st-century biblical scene, {style}"
+        img_id = generate_leonardo_image(safe_prompt, img_fn)
+        
         animated = animate_with_leonardo(img_id, vid_fn) if img_id else None
         
         if animated and os.path.exists(animated):
@@ -250,7 +285,13 @@ def produce():
                 continue
                 
             s, e = chunk[0]["start"], (words[j+2]["start"] if j+2 < len(words) else duration)
-            subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
+            
+            # Note: Ensure "THEBOLDFONT-FREEVERSION.ttf" is committed to your GitHub repo root!
+            try:
+                subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
+            except:
+                # Fallback to Impact if the custom TTF is missing from the runner environment
+                subs.append(TextClip(txt_str, font="Impact", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
 
     # 🚀 LEGAL JOURNALISTIC SOURCE WATERMARK OVERLAY
     source_text = f"EDITORIAL: DAILY GOSPEL / VISUALS: LEONARDO AI"
@@ -308,19 +349,17 @@ def produce():
             # Executing our robust backoff/retry engine loop from utils.py
             resp = execute_youtube_upload_with_backoff(youtube, body, media_file)
             
+            # 🚨 FIXED: Handle dictionary vs string outputs from your YouTube module
+            final_video_id = resp if isinstance(resp, str) else resp.get('id', 'UPLOAD_SUCCESS')
+            
             # Log back to Google Sheet database for history integrity
-            sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), resp.get('id'), style.split(' (')[0]])
+            sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), final_video_id, style.split(' (')[0]])
             logger.info("Successfully registered transaction to Google sheet database registry.")
 
             # =====================================================================
             # 5. OMNICHANNEL DISTRIBUTION (n8n Webhook)
             # =====================================================================
-            logger.info("Initializing n8n webhook sequence...")
-            trigger_n8n_omnichannel_webhook(
-                video_path="biblical_export.mp4",
-                title=safe_title,
-                description=fair_use_desc
-            )
+            push_to_n8n_webhook("biblical_export.mp4", safe_title, fair_use_desc)
             logger.info("Pipeline execution completely finished.")
             
         except Exception as e:
