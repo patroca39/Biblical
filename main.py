@@ -8,6 +8,7 @@ import requests
 import base64
 import PIL.Image
 import gspread
+from pydantic import BaseModel # 🚨 Added for bulletproof JSON structuring
 
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -15,7 +16,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORT PRODUCTION PLUMBING FROM UTILS ---
-# Notice we removed trigger_n8n_omnichannel_webhook to handle it natively with binary data below
 from utils import logger, send_telegram_alert, execute_youtube_upload_with_backoff
 
 # --- PILLOW COMPATIBILITY FIX ---
@@ -31,7 +31,8 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'), http_options={'api_version': 'v1beta'})
+# 🚨 FIXED: Removed the v1beta http_options to use the stable production endpoints
+gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
 SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
@@ -93,8 +94,21 @@ def get_memory():
         logger.error(f"Failed to securely tie into Google Sheets persistence: {e}")
         return None
 
+# 🚨 FIXED: Bulletproof Structured Outputs to prevent verse/colon parsing crashes
 def scout_daily_gospel(art_style):
     logger.info(f"Intelligence: Scouting daily Gospel liturgical data with style target: {art_style}...")
+    
+    class GospelSchema(BaseModel):
+        TITLE: str
+        SCRIPTURE: str
+        HOOK: str
+        VERBATIM_VERSE: str
+        CLIFFHANGER: str
+        VISUAL_SUBJECT: str
+        IMAGE_A: str
+        IMAGE_B: str
+        IMAGE_C: str
+        IMAGE_D: str
     
     prompt = f"""
     Today is {datetime.date.today()}. Find the official Daily Gospel.
@@ -105,7 +119,7 @@ def scout_daily_gospel(art_style):
     4. VERBATIM_VERSE: Provide the STRICTLY verbatim Bible text (60-80 words). Do not paraphrase or summarize a single word.
     5. CLIFFHANGER: A positive, highly encouraging, and intriguing closing thought. NEVER use doubtful, questioning, or pessimistic phrasing. Instead, build faith, affirmation, and wonder (Example: "[hopeful] His promise is already moving in your life today... will you step into the light?").
 
-    🚨 NATIVE ELEVENLABS EMOTION TAGGING RULE:
+    NATIVE ELEVENLABS EMOTION TAGGING RULE:
     You must format the narration text for HOOK, VERBATIM_VERSE, and CLIFFHANGER using explicit ElevenLabs audio tags to inject powerful emotional connection.
     - Preface highly dramatic, intense, or critical moments with an appropriate delivery tag wrapped in SQUARE BRACKETS like [whispers], [grave], [emotional], or [intense].
     - Use transitions like [warm], [uplifting], or [hopeful] when moving from structural descriptions or solemn moments into bright, spiritual promises.
@@ -113,23 +127,24 @@ def scout_daily_gospel(art_style):
 
     ART STYLE: Render every image in the style of {art_style}.
     SETTING: Strictly 1st-century Middle East.
-
-    FORMAT:
-    TITLE: [text]
-    SCRIPTURE: [text]
-    HOOK: [text]
-    VERBATIM_VERSE: [text]
-    CLIFFHANGER: [text]
-    VISUAL_SUBJECT: [3-word description]
-    IMAGE_A: [Atmospheric environment, {art_style}, 1st-century...]
-    IMAGE_B: [Macro detail, {art_style}, 1st-century...]
-    IMAGE_C: [Character emotion, {art_style}, 1st-century...]
-    IMAGE_D: [Epic wide shot, {art_style}, 1st-century...]
+    IMAGE_A: Atmospheric environment. First-person POV.
+    IMAGE_B: Macro detail. First-person POV.
+    IMAGE_C: Character emotion. First-person POV.
+    IMAGE_D: Epic wide shot. First-person POV.
     """
+    
     try:
-        res = gen_client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]))
-        cleaned = res.text.replace('**', '')
-        return {line.split(':', 1)[0].strip(): line.split(':', 1)[1].strip() for line in cleaned.split('\n') if ':' in line}
+        res = gen_client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=prompt, 
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=GospelSchema,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.65
+            )
+        )
+        return json.loads(res.text)
     except Exception as e:
         logger.error(f"Gemini Liturgical Scouting Model failure: {e}")
         return None
@@ -147,6 +162,10 @@ def generate_leonardo_image(prompt, filename):
     }
     try:
         response = requests.post(url, json=payload, headers=headers).json()
+        if 'sdGenerationJob' not in response:
+            logger.error(f"Leonardo API Rejected Request: {response}")
+            return None
+            
         gen_id = response['sdGenerationJob']['generationId']
         for _ in range(15):
             time.sleep(7)
@@ -191,11 +210,11 @@ def push_to_n8n_webhook(video_path, title, description):
     logger.info("Transmitting video binary payload to n8n omnichannel webhook for Facebook...")
     try:
         with open(video_path, 'rb') as f:
-            # Package as standard multipart form data
             files = {'file': (os.path.basename(video_path), f, 'video/mp4')}
             data = {'title': title, 'description': description}
             
-            response = requests.post(webhook_url, files=files, data=data)
+            # Added timeout to prevent runner hang if n8n is offline
+            response = requests.post(webhook_url, files=files, data=data, timeout=60)
             
         if response.status_code == 200:
             logger.info("✅ Successfully transferred binary payload to n8n pipeline!")
@@ -228,7 +247,6 @@ def produce():
                                 json={"text": full_text, "model_id": "eleven_v3"}, 
                                 headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}).json()
         
-        # Explicit Quota Catch
         if 'audio_base64' not in res_api:
             raise KeyError(f"Missing audio data (Quota Exceeded or API Error). Response: {res_api}")
             
@@ -247,8 +265,6 @@ def produce():
     video_clips = []
     for char in ['A', 'B', 'C', 'D']:
         img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
-        
-        # Fallback safeguard in case Gemini drops an image tag
         safe_prompt = data.get(f'IMAGE_{char}') or f"1st-century biblical scene, {style}"
         img_id = generate_leonardo_image(safe_prompt, img_fn)
         
@@ -278,29 +294,21 @@ def produce():
         
         for j in range(0, len(words), 2):
             chunk = words[j:j+2]; txt_str = " ".join([w["text"] for w in chunk]).upper()
-            
-            # 🚨 Automatically strips out any [tags] so they don't appear on screen
             txt_str = re.sub(r'\[.*?\]', '', txt_str).strip()
-            if not txt_str:
-                continue
+            if not txt_str: continue
                 
             s, e = chunk[0]["start"], (words[j+2]["start"] if j+2 < len(words) else duration)
             
-            # Note: Ensure "THEBOLDFONT-FREEVERSION.ttf" is committed to your GitHub repo root!
             try:
                 subs.append(TextClip(txt_str, font="THEBOLDFONT-FREEVERSION.ttf", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
             except:
-                # Fallback to Impact if the custom TTF is missing from the runner environment
                 subs.append(TextClip(txt_str, font="Impact", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
 
     # 🚀 LEGAL JOURNALISTIC SOURCE WATERMARK OVERLAY
     source_text = f"EDITORIAL: DAILY GOSPEL / VISUALS: LEONARDO AI"
     source_clip = (TextClip(source_text, font="Impact", fontsize=28, 
                             color='white', stroke_color='black', stroke_width=1, method='caption', size=(750, None))
-                   .set_duration(duration)
-                   .set_start(0)
-                   .set_opacity(0.5) 
-                   .set_position((50, 80)))
+                   .set_duration(duration).set_start(0).set_opacity(0.5).set_position((50, 80)))
 
     # 🚀 EXPORT
     logger.info("MoviePy: Compiling timeline matrices, exporting h.264 wrapper allocation map...")
@@ -318,7 +326,6 @@ def produce():
             
             youtube = build("youtube", "v3", credentials=Credentials(**creds_data))
             
-            # 🚨 BULLETPROOF CLEANER: Strips all brackets < > [ ] from metadata
             raw_title = f"{data.get('TITLE')} | {data.get('SCRIPTURE')}"
             safe_title = re.sub(r'[\[\]<>]', '', raw_title).strip()
             
@@ -346,19 +353,12 @@ def produce():
             }
             media_file = MediaFileUpload("biblical_export.mp4", chunksize=-1, resumable=True)
             
-            # Executing our robust backoff/retry engine loop from utils.py
             resp = execute_youtube_upload_with_backoff(youtube, body, media_file)
-            
-            # 🚨 FIXED: Handle dictionary vs string outputs from your YouTube module
             final_video_id = resp if isinstance(resp, str) else resp.get('id', 'UPLOAD_SUCCESS')
             
-            # Log back to Google Sheet database for history integrity
             sheet.append_row([str(datetime.date.today()), data.get('SCRIPTURE'), data.get('TITLE'), data.get('VISUAL_SUBJECT'), final_video_id, style.split(' (')[0]])
             logger.info("Successfully registered transaction to Google sheet database registry.")
 
-            # =====================================================================
-            # 5. OMNICHANNEL DISTRIBUTION (n8n Webhook)
-            # =====================================================================
             push_to_n8n_webhook("biblical_export.mp4", safe_title, fair_use_desc)
             logger.info("Pipeline execution completely finished.")
             
@@ -366,6 +366,18 @@ def produce():
             upload_err = f"Pipeline upload sequence crashed completely: {e}"
             logger.error(upload_err)
             send_telegram_alert(upload_err, context="ERROR")
+            
+    # 🚨 FIXED: Core Resource Cleanup to prevent memory lockups on the runner
+    logger.info("🧹 Sweeping up file descriptors and clearing runner memory...")
+    try:
+        final_video.close()
+        main_v.close()
+        source_clip.close()
+        voice.close()
+        for c in video_clips: c.close()
+        for s in subs: s.close()
+    except Exception as e:
+        logger.warning(f"Non-blocking cleanup alert: {e}")
 
 if __name__ == "__main__":
     produce()
