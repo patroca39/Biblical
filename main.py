@@ -94,7 +94,7 @@ def get_memory():
         logger.error(f"Failed to securely tie into Google Sheets persistence: {e}")
         return None
 
-# 🚨 FIXED: Bulletproof Structured Outputs to prevent verse/colon parsing crashes
+# 🚨 FIXED: Two-Step Pipeline to bypass the API 400 Error
 def scout_daily_gospel(art_style):
     logger.info(f"Intelligence: Scouting daily Gospel liturgical data with style target: {art_style}...")
     
@@ -109,9 +109,30 @@ def scout_daily_gospel(art_style):
         IMAGE_B: str
         IMAGE_C: str
         IMAGE_D: str
+
+    # --- STEP 1: Search the web to find today's reading (NO JSON Schema) ---
+    logger.info("Step 1: Grounding search for today's Catholic Daily Gospel...")
+    search_prompt = f"What is the official Catholic Daily Gospel reading for today, {datetime.date.today()}? Return the scripture reference and the verbatim text."
     
-    prompt = f"""
-    Today is {datetime.date.today()}. Find the official Daily Gospel.
+    try:
+        search_res = gen_client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=search_prompt, 
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.3
+            )
+        )
+        raw_gospel_data = search_res.text
+    except Exception as e:
+        logger.error(f"Gemini Grounding Search failure: {e}")
+        return None
+
+    # --- STEP 2: Format the text into our bulletproof JSON schema (NO Google Search) ---
+    logger.info("Step 2: Formatting reading into Pydantic JSON structure...")
+    formatting_prompt = f"""
+    Based on the following Daily Gospel reading:
+    {raw_gospel_data}
     
     1. SCRIPTURE: The exact book, chapter, and verse (e.g., John 3:16).
     2. TITLE: Create a "Curiosity Gap" title.
@@ -133,21 +154,24 @@ def scout_daily_gospel(art_style):
     IMAGE_D: Epic wide shot. First-person POV.
     """
     
-    try:
-        res = gen_client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=prompt, 
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GospelSchema,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.65
+    for attempt in range(4):
+        try:
+            format_res = gen_client.models.generate_content(
+                model='gemini-2.5-flash', 
+                contents=formatting_prompt, 
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=GospelSchema,
+                    temperature=0.65
+                )
             )
-        )
-        return json.loads(res.text)
-    except Exception as e:
-        logger.error(f"Gemini Liturgical Scouting Model failure: {e}")
-        return None
+            return json.loads(format_res.text)
+        except Exception as e:
+            logger.warning(f"Gemini API formatting attempt {attempt + 1} failed: {e}. Retrying...")
+            time.sleep(10)
+            
+    logger.error("Gemini JSON Formatting Model failure.")
+    return None
 
 def generate_leonardo_image(prompt, filename):
     logger.info(f"Leonardo AI: Dispensing render compute call for {filename}...")
