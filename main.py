@@ -31,7 +31,6 @@ from moviepy.audio.fx.all import audio_loop
 # --- 1. SYSTEM CONFIG ---
 change_settings({"IMAGEMAGICK_BINARY": "/usr/bin/convert"})
 
-# 🚨 FIXED: Removed the v1beta http_options to use the stable production endpoints
 gen_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 LEO_API_KEY = os.getenv('LEONARDO_API_KEY')
@@ -94,7 +93,6 @@ def get_memory():
         logger.error(f"Failed to securely tie into Google Sheets persistence: {e}")
         return None
 
-# 🚨 FIXED: Two-Step Pipeline to bypass the API 400 Error
 def scout_daily_gospel(art_style):
     logger.info(f"Intelligence: Scouting daily Gospel liturgical data with style target: {art_style}...")
     
@@ -110,7 +108,7 @@ def scout_daily_gospel(art_style):
         IMAGE_C: str
         IMAGE_D: str
 
-    # --- STEP 1: Search the web to find today's reading (NO JSON Schema) ---
+    # --- STEP 1: Search the web to find today's reading ---
     logger.info("Step 1: Grounding search for today's Catholic Daily Gospel...")
     search_prompt = f"What is the official Catholic Daily Gospel reading for today, {datetime.date.today()}? Return the scripture reference and the verbatim text."
     
@@ -128,8 +126,10 @@ def scout_daily_gospel(art_style):
         logger.error(f"Gemini Grounding Search failure: {e}")
         return None
 
-    # --- STEP 2: Format the text into our bulletproof JSON schema (NO Google Search) ---
+    # --- STEP 2: Format the text into our bulletproof JSON schema ---
     logger.info("Step 2: Formatting reading into Pydantic JSON structure...")
+    
+    # 🚨 INJECTED: Visual Action Mandate added to the prompt
     formatting_prompt = f"""
     Based on the following Daily Gospel reading:
     {raw_gospel_data}
@@ -148,10 +148,14 @@ def scout_daily_gospel(art_style):
 
     ART STYLE: Render every image in the style of {art_style}.
     SETTING: Strictly 1st-century Middle East.
-    IMAGE_A: Atmospheric environment. First-person POV.
-    IMAGE_B: Macro detail. First-person POV.
-    IMAGE_C: Character emotion. First-person POV.
-    IMAGE_D: Epic wide shot. First-person POV.
+    
+    VISUAL ACTION MANDATE:
+    When a biblical figure is taking action or feeling an emotion, the image MUST focus intimately on what they are doing. Directly extract and use the exact verbs, adjectives, and emotions from the VERBATIM_VERSE to dictate how the character's actions and face are portrayed.
+    
+    IMAGE_A: Atmospheric environment establishing the scene. First-person POV.
+    IMAGE_B: Character emotion and action, guided strictly by script verbs. First-person POV.
+    IMAGE_C: Macro detail of the physical action or divine element. First-person POV.
+    IMAGE_D: Epic wide shot of the aftermath or miracle. First-person POV.
     """
     
     for attempt in range(4):
@@ -167,23 +171,37 @@ def scout_daily_gospel(art_style):
             )
             return json.loads(format_res.text)
         except Exception as e:
-            logger.warning(f"Gemini API formatting attempt {attempt + 1} failed: {e}. Retrying...")
-            time.sleep(10)
+            # 🚨 INJECTED: 35-second cooldown to bypass 429 RESOURCE_EXHAUSTED
+            logger.warning(f"Gemini API formatting attempt {attempt + 1} failed: {e}. Cooldown 35s...")
+            time.sleep(35)
             
     logger.error("Gemini JSON Formatting Model failure.")
     return None
 
-def generate_leonardo_image(prompt, filename):
+# 🚨 INJECTED: char_ref_id ControlNet capabilities added
+def generate_leonardo_image(prompt, filename, char_ref_id=None):
     logger.info(f"Leonardo AI: Dispensing render compute call for {filename}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
+    
+    hardened_prompt = f"{prompt}, professional anime style, highly expressive human emotions, clean lines"
+    
     payload = {
         "height": 1024, "width": 576, 
-        "prompt": f"{prompt}, professional anime style, clean lines", 
+        "prompt": hardened_prompt, 
         "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
         "alchemy": True,
         "contrastRatio": 0.8
     }
+
+    if char_ref_id:
+        payload["controlnets"] = [{
+            "initImageId": char_ref_id,
+            "initImageType": "GENERATED", 
+            "preprocessorId": 133,  
+            "strengthType": "Mid"
+        }]
+
     try:
         response = requests.post(url, json=payload, headers=headers).json()
         if 'sdGenerationJob' not in response:
@@ -202,6 +220,7 @@ def generate_leonardo_image(prompt, filename):
     except Exception as e:
         logger.error(f"Leonardo image engine failure on prompt: {e}")
         return None
+    return None
 
 def animate_with_leonardo(image_id, filename):
     logger.info(f"Leonardo Motion SVD: Rendering video dynamics for Frame ID: {image_id}...")
@@ -222,10 +241,6 @@ def animate_with_leonardo(image_id, filename):
         return None
 
 def push_to_n8n_webhook(video_path, title, description):
-    """
-    Sends the video file natively via multipart/form-data so n8n can directly 
-    upload the binary file to Facebook without needing file path access.
-    """
     webhook_url = os.getenv('N8N_WEBHOOK_URL')
     if not webhook_url:
         logger.warning("No N8N_WEBHOOK_URL found. Skipping omnichannel push.")
@@ -237,7 +252,6 @@ def push_to_n8n_webhook(video_path, title, description):
             files = {'file': (os.path.basename(video_path), f, 'video/mp4')}
             data = {'title': title, 'description': description}
             
-            # Added timeout to prevent runner hang if n8n is offline
             response = requests.post(webhook_url, files=files, data=data, timeout=60)
             
         if response.status_code == 200:
@@ -253,7 +267,6 @@ def produce():
         logger.critical("Aborting sequence. Google Sheet infrastructure unreachable.")
         return
         
-    # 🛑 LAYER 5 STATE TRACKING
     if check_idempotency_state(sheet):
         return
 
@@ -263,7 +276,6 @@ def produce():
         send_telegram_alert("Gospel tracking module could not parse data entries today.", context="ERROR")
         return
 
-    # 🎙️ AUDIO & ALIGNMENT
     logger.info("ElevenLabs: Communicating text-to-speech rendering pipeline request...")
     full_text = f"{data.get('HOOK')} {data.get('VERBATIM_VERSE')} {data.get('CLIFFHANGER')}"
     try:
@@ -287,11 +299,20 @@ def produce():
     # 🎬 VIDEO ASSEMBLY
     seg_dur = duration / 4 
     video_clips = []
+    
+    # 🚨 INJECTED: Tracking base_character_id for consistent rendering
+    base_character_id = None 
+
     for char in ['A', 'B', 'C', 'D']:
         img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
         safe_prompt = data.get(f'IMAGE_{char}') or f"1st-century biblical scene, {style}"
-        img_id = generate_leonardo_image(safe_prompt, img_fn)
         
+        # Pass char_ref_id to keep the face/clothing identical to IMAGE_A
+        img_id = generate_leonardo_image(safe_prompt, img_fn, char_ref_id=base_character_id)
+        
+        if img_id and not base_character_id:
+            base_character_id = img_id
+            
         animated = animate_with_leonardo(img_id, vid_fn) if img_id else None
         
         if animated and os.path.exists(animated):
@@ -303,7 +324,6 @@ def produce():
 
     main_v = concatenate_videoclips(video_clips, method="compose")
 
-    # 📝 SUBTITLES WITH REGEX CLEANUP
     subs = []
     if alignment_data:
         chars, starts, ends = alignment_data['characters'], alignment_data['character_start_times_seconds'], alignment_data['character_end_times_seconds']
@@ -328,18 +348,15 @@ def produce():
             except:
                 subs.append(TextClip(txt_str, font="Impact", fontsize=95, color='yellow', stroke_color='black', stroke_width=4, method='caption', size=(900, None)).set_duration(e-s).set_start(s).set_position(('center', 1300)).resize(lambda t: min(1.0, 0.8 + 5*t)))
 
-    # 🚀 LEGAL JOURNALISTIC SOURCE WATERMARK OVERLAY
     source_text = f"EDITORIAL: DAILY GOSPEL / VISUALS: LEONARDO AI"
     source_clip = (TextClip(source_text, font="Impact", fontsize=28, 
                             color='white', stroke_color='black', stroke_width=1, method='caption', size=(750, None))
                    .set_duration(duration).set_start(0).set_opacity(0.5).set_position((50, 80)))
 
-    # 🚀 EXPORT
     logger.info("MoviePy: Compiling timeline matrices, exporting h.264 wrapper allocation map...")
     final_video = CompositeVideoClip([main_v, source_clip] + subs).set_audio(voice).set_duration(duration)
     final_video.write_videofile("biblical_export.mp4", fps=24, codec="libx264", preset="ultrafast")
 
-    # 🚀 ROBUST DEPLOYMENT WITH LOGGING & BACKOFF RETRIES
     if os.path.exists("biblical_export.mp4"):
         logger.info("Export file generated. Initializing production upload sequence...")
         try:
@@ -391,7 +408,6 @@ def produce():
             logger.error(upload_err)
             send_telegram_alert(upload_err, context="ERROR")
             
-    # 🚨 FIXED: Core Resource Cleanup to prevent memory lockups on the runner
     logger.info("🧹 Sweeping up file descriptors and clearing runner memory...")
     try:
         final_video.close()
