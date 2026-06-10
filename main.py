@@ -8,7 +8,7 @@ import requests
 import base64
 import PIL.Image
 import gspread
-from pydantic import BaseModel # 🚨 Added for bulletproof JSON structuring
+from pydantic import BaseModel 
 
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -45,6 +45,34 @@ ANIME_STYLES = [
     "Makoto Shinkai (Your Name style, gorgeous skies, lens flares)",
     "90s Retro Anime (Cowboy Bebop style, cel-shaded, film grain)"
 ]
+
+# 🚨 NEW: Robust Exponential Backoff Engine for Gemini
+def generate_content_with_retry(model_name, prompt, config, max_retries=5):
+    """Wraps Gemini API calls with exponential backoff to handle 429/503 errors."""
+    delay = 2
+    for attempt in range(max_retries):
+        try:
+            return gen_client.models.generate_content(
+                model=model_name, 
+                contents=prompt, 
+                config=config
+            )
+        except Exception as e:
+            error_str = str(e)
+            if "503" in error_str or "429" in error_str or "UNAVAILABLE" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                if attempt == max_retries - 1:
+                    logger.warning(f"Primary model {model_name} failed. Attempting fallback to gemini-1.5-flash...")
+                    return gen_client.models.generate_content(
+                        model='gemini-1.5-flash', 
+                        contents=prompt, 
+                        config=config
+                    )
+                logger.warning(f"Gemini server busy/overloaded. Retrying in {delay}s... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(delay)
+                delay *= 2
+            else:
+                # If it's a hard error (like a bad prompt structure), fail immediately
+                raise e
 
 def check_idempotency_state(sheet):
     try:
@@ -113,9 +141,10 @@ def scout_daily_gospel(art_style):
     search_prompt = f"What is the official Catholic Daily Gospel reading for today, {datetime.date.today()}? Return the scripture reference and the verbatim text."
     
     try:
-        search_res = gen_client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=search_prompt, 
+        # 🚨 Utilizing new exponential backoff wrapper
+        search_res = generate_content_with_retry(
+            model_name='gemini-2.5-flash', 
+            prompt=search_prompt, 
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
                 temperature=0.3
@@ -128,8 +157,6 @@ def scout_daily_gospel(art_style):
 
     # --- STEP 2: Format the text into our bulletproof JSON schema ---
     logger.info("Step 2: Formatting reading into Pydantic JSON structure...")
-    
-    # 🚨 INJECTED: Visual Action Mandate added to the prompt
     formatting_prompt = f"""
     Based on the following Daily Gospel reading:
     {raw_gospel_data}
@@ -160,9 +187,10 @@ def scout_daily_gospel(art_style):
     
     for attempt in range(4):
         try:
-            format_res = gen_client.models.generate_content(
-                model='gemini-2.5-flash', 
-                contents=formatting_prompt, 
+            # 🚨 Utilizing new exponential backoff wrapper
+            format_res = generate_content_with_retry(
+                model_name='gemini-2.5-flash', 
+                prompt=formatting_prompt, 
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=GospelSchema,
@@ -171,14 +199,12 @@ def scout_daily_gospel(art_style):
             )
             return json.loads(format_res.text)
         except Exception as e:
-            # 🚨 INJECTED: 35-second cooldown to bypass 429 RESOURCE_EXHAUSTED
-            logger.warning(f"Gemini API formatting attempt {attempt + 1} failed: {e}. Cooldown 35s...")
-            time.sleep(35)
+            logger.warning(f"Gemini API formatting attempt {attempt + 1} failed: {e}. Cooldown 15s...")
+            time.sleep(15)
             
     logger.error("Gemini JSON Formatting Model failure.")
     return None
 
-# 🚨 INJECTED: char_ref_id ControlNet capabilities added
 def generate_leonardo_image(prompt, filename, char_ref_id=None):
     logger.info(f"Leonardo AI: Dispensing render compute call for {filename}...")
     url = "https://cloud.leonardo.ai/api/rest/v1/generations"
@@ -300,14 +326,12 @@ def produce():
     seg_dur = duration / 4 
     video_clips = []
     
-    # 🚨 INJECTED: Tracking base_character_id for consistent rendering
     base_character_id = None 
 
     for char in ['A', 'B', 'C', 'D']:
         img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
         safe_prompt = data.get(f'IMAGE_{char}') or f"1st-century biblical scene, {style}"
         
-        # Pass char_ref_id to keep the face/clothing identical to IMAGE_A
         img_id = generate_leonardo_image(safe_prompt, img_fn, char_ref_id=base_character_id)
         
         if img_id and not base_character_id:
