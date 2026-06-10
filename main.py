@@ -215,7 +215,8 @@ def generate_leonardo_image(prompt, filename, char_ref_id=None):
     payload = {
         "height": 1024, "width": 576, 
         "prompt": hardened_prompt, 
-        "modelId": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
+        # 🚨 FIX 1: Reverted to Leonardo Vision XL to support Character Reference ControlNet
+        "modelId": "aa77f04e-3eec-4034-9c07-d0f619684628",
         "alchemy": True,
         "contrastRatio": 0.8
     }
@@ -254,7 +255,10 @@ def animate_with_leonardo(image_id, filename):
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {LEO_API_KEY}"}
     try:
         res = requests.post(url, json={"imageId": image_id, "motionStrength": 4}, headers=headers).json()
-        gen_id = res['sdGenerationJob']['generationId']
+        
+        # 🚨 FIX 2: Correct JSON key for the Motion SVD endpoint
+        gen_id = res['motionSvdGenerationJob']['generationId']
+        
         for _ in range(25):
             time.sleep(10)
             status = requests.get(f"https://cloud.leonardo.ai/api/rest/v1/generations/{gen_id}", headers=headers).json()
