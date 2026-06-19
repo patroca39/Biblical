@@ -22,15 +22,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install System Dependencies
+      - name: Install System Dependencies (FFmpeg, ImageMagick & Fonts)
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick ffmpeg
+          sudo apt-get install -y ffmpeg imagemagick fonts-liberation
 
       - name: Fix ImageMagick Policy for MoviePy
         run: |
-          # MoviePy requires modifying the default ImageMagick security policy to render text
-          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
+          # Cleanly remove the specific ImageMagick security policy that blocks MoviePy TextClips
+          sudo sed -i '/<policy domain="path" rights="none" pattern="@\*"/d' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Dependencies
         run: |
@@ -48,7 +48,6 @@ jobs:
           GOOGLE_SHEETS_JSON: ${{ secrets.GOOGLE_SHEETS_JSON }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # 🚨 ADD THIS NEW LINE:
           N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
         run: |
           python main.py
