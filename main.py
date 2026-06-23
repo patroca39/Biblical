@@ -52,14 +52,17 @@ ANIME_STYLES = [
     "90s Retro Anime (Cowboy Bebop style, cel-shaded, film grain)"
 ]
 
+# --- UPGRADED BIBLICAL SFX MAP ---
 SFX_PROMPT_MAP = {
-    "BREATH": "Heavy, panicked human breathing, cinematic",
-    "FOOTSTEPS": "Slow, echoing footsteps walking on a stone floor",
-    "RUNNING": "Frantic, fast footsteps running rapidly on dirt",
-    "CREAK": "A slow, eerie, heavy wooden door creaking",
-    "DOOR_SLAM": "A violent, loud, sudden wooden door slamming shut with a heavy echo",
-    "GLITCH": "Harsh distant thunder, low rumbling storm",
-    "THUD": "A heavy, muffled thud of a large object hitting the ground"
+    "THUNDER": "Deep, distant, terrifying thunder rolling across an ancient desert valley, cinematic",
+    "DESERT_WIND": "Howling, desolate wind blowing sand across a barren wasteland",
+    "STONE_GRIND": "Massive, heavy ancient stone slab grinding slowly against rock, tomb opening",
+    "SWORD_DRAW": "Sharp, metallic shing of a heavy bronze sword being drawn from a scabbard",
+    "ANGELIC_CHOIR": "Ethereal, distant angelic choir humming a single, resonant, holy chord",
+    "FIRE_CRACKLE": "Intense, roaring flames burning like a massive bonfire or burning bush",
+    "HEARTBEAT": "Slow, deep, terrifying cinematic heartbeat, heavy bass",
+    "SAND_STEPS": "Slow, deliberate footsteps crunching loudly on dry desert sand",
+    "NORMAL": ""
 }
 
 # --- RHYTHM & BACKOFF ENGINES ---
@@ -86,6 +89,7 @@ def generate_content_with_retry(model_name, prompt, config, max_retries=5):
 
 # --- ELEVENLABS & LEONARDO APIs ---
 def generate_elevenlabs_sfx(prompt, filename):
+    if not prompt: return False
     logger.info(f"🔊 Generating dynamic SFX: {prompt}")
     url = "https://api.elevenlabs.io/v1/sound-generation"
     headers = {"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}
@@ -208,6 +212,8 @@ def scout_daily_gospel(art_style):
         IMAGE_B: str
         IMAGE_C: str
         IMAGE_D: str
+        IMAGE_E: str
+        IMAGE_F: str
         MONOLOGUE: str
         ENGAGEMENT: str
 
@@ -230,18 +236,20 @@ def scout_daily_gospel(art_style):
     Your MONOLOGUE must be broken down into sequentially tagged segments. Do not provide separate Hook/Verse/Cliffhanger fields; compile them ALL into the unified MONOLOGUE string using this exact syntax:
     [NARRATOR|MOTION_PROFILE|SFX_TRIGGER]: "[vocal emotion tag] The dialogue text here."
     
-    Available MOTION_PROFILES: ORGANIC_DRIFT, CREEP_ZOOM_TARGET, VIOLENT_SHAKE, STROBE_INVERT, VIGNETTE_PULSE, THE_VOID_CUT
-    Available SFX_TRIGGERS: NORMAL, BREATH, FOOTSTEPS, RUNNING, CREAK, DOOR_SLAM, GLITCH, THUD
+    Available MOTION_PROFILES: REVERENT_ZOOM, DIVINE_ASCENSION, WRATH_TREMOR, HOLY_FLASH, ABYSSAL_SHADOW, ORGANIC_DRIFT
+    Available SFX_TRIGGERS: NORMAL, THUNDER, DESERT_WIND, STONE_GRIND, SWORD_DRAW, ANGELIC_CHOIR, FIRE_CRACKLE, HEARTBEAT, SAND_STEPS
     
     Example MONOLOGUE Output:
-    "[NARRATOR|ORGANIC_DRIFT|NORMAL]: [warm] John 3:16 — The Ultimate Promise. [NARRATOR|CREEP_ZOOM_TARGET|GLITCH]: [intense] For God so loved the world..."
+    "[NARRATOR|ORGANIC_DRIFT|NORMAL]: [warm] John 3:16 — The Ultimate Promise. [NARRATOR|REVERENT_ZOOM|THUNDER]: [intense] For God so loved the world..."
     
     VISUAL ACTION MANDATE:
-    ART STYLE: Render every image in the style of {art_style}.
+    ART STYLE: Render every image in the style of {art_style}. You must generate 6 chronological scenes.
     IMAGE_A: Atmospheric environment establishing the scene. First-person POV.
     IMAGE_B: Character emotion and action, guided strictly by script verbs. First-person POV.
     IMAGE_C: Macro detail of the physical action or divine element. First-person POV.
-    IMAGE_D: Epic wide shot of the aftermath or miracle. First-person POV.
+    IMAGE_D: Epic wide shot of the central action escalating.
+    IMAGE_E: Close up reaction shot or miraculous moment.
+    IMAGE_F: Epic wide shot of the aftermath or miracle. First-person POV.
     """
     
     for attempt in range(4):
@@ -271,7 +279,8 @@ def produce():
     base_character_id = None 
     asset_sequence = [] # Stores dicts of {'img': path, 'vid': path}
 
-    for char in ['A', 'B', 'C', 'D']:
+    # Increased to 6 scenes for better pacing
+    for char in ['A', 'B', 'C', 'D', 'E', 'F']:
         img_fn, vid_fn = f"scene_{char}.png", f"scene_{char}.mp4"
         safe_prompt = data.get(f'IMAGE_{char}') or f"1st-century biblical scene, {style}"
         
@@ -298,11 +307,11 @@ def produce():
         intensity_action = tag_parts[1].strip() if len(tag_parts) > 1 else "ORGANIC_DRIFT"
         sfx_trigger = tag_parts[2].strip() if len(tag_parts) > 2 else "NORMAL"
         
-        # Calculate tension gaps
+        # --- NEW TIGHT PACING LOGIC ---
         if idx < len(segments) - 1:
-            if "VIOLENT" in intensity_action or "RUNNING" in full_tag: gap = random.uniform(0.05, 0.15)
-            elif "CREEP" in intensity_action or "REVELATION" in full_tag: gap = random.uniform(0.8, 1.3)
-            else: gap = random.uniform(0.2, 0.5)
+            if "WRATH" in intensity_action or "RUNNING" in full_tag: gap = random.uniform(0.05, 0.15)
+            elif "REVERENT" in intensity_action or "REVELATION" in full_tag: gap = random.uniform(0.1, 0.3)
+            else: gap = random.uniform(0.05, 0.2)
         else: gap = 0.0
         gap_durations.append(gap)
         
@@ -322,10 +331,20 @@ def produce():
             
             sfx_api_prompt = SFX_PROMPT_MAP.get(sfx_trigger)
             temp_sfx_fn = f"temp_sfx_{idx}.mp3"
+            
+            # --- NEW AUDIO MIXING LOGIC (Offset & Volume control) ---
             if sfx_api_prompt and generate_elevenlabs_sfx(sfx_api_prompt, temp_sfx_fn):
                 try:
-                    sfx_clip = AudioFileClip(temp_sfx_fn).volumex(0.35).subclip(0, seg_dur) if AudioFileClip(temp_sfx_fn).duration > seg_dur else AudioFileClip(temp_sfx_fn).volumex(0.35)
-                    mixed_segment = CompositeAudioClip([voice_segment.set_start(0), sfx_clip.set_start(0)]).set_duration(seg_dur)
+                    sfx_clip = AudioFileClip(temp_sfx_fn).volumex(0.25)
+                    dynamic_sfx_clips.append(sfx_clip)
+                    
+                    if sfx_clip.duration > (seg_dur + 0.2): 
+                        sfx_clip = sfx_clip.subclip(0, seg_dur + 0.2)
+                    
+                    # Voice starts 0.2s AFTER SFX
+                    voice_segment = voice_segment.set_start(0.2)
+                    mixed_segment = CompositeAudioClip([sfx_clip.set_start(0), voice_segment]).set_duration(max(sfx_clip.duration, voice_segment.end))
+                    seg_dur = mixed_segment.duration
                 except: mixed_segment = voice_segment
             else: mixed_segment = voice_segment
 
@@ -339,13 +358,16 @@ def produce():
             for c_idx, char in enumerate(chars):
                 if char.strip() == "":
                     if curr_w:
-                        word_timestamps_master.append({"text": curr_w, "start": s_t + elapsed_time_offset, "end": ends[c_idx-1] + elapsed_time_offset})
+                        # Offset words by 0.2s if SFX shifted the voice track
+                        offset = 0.2 if (sfx_api_prompt and os.path.exists(temp_sfx_fn)) else 0.0
+                        word_timestamps_master.append({"text": curr_w, "start": s_t + elapsed_time_offset + offset, "end": ends[c_idx-1] + elapsed_time_offset + offset})
                         curr_w = ""; s_t = None
                 else:
                     if not curr_w: s_t = starts[c_idx]
                     curr_w += char
             if curr_w:
-                word_timestamps_master.append({"text": curr_w, "start": s_t + elapsed_time_offset, "end": ends[-1] + elapsed_time_offset})
+                offset = 0.2 if (sfx_api_prompt and os.path.exists(temp_sfx_fn)) else 0.0
+                word_timestamps_master.append({"text": curr_w, "start": s_t + elapsed_time_offset + offset, "end": ends[-1] + elapsed_time_offset + offset})
                 
             elapsed_time_offset += (seg_dur + gap)
         except Exception as e: 
@@ -378,7 +400,13 @@ def produce():
             if c is None: c = ColorClip(size=(1080, 1920), color=(20, 20, 30)).set_duration(total_scene_dur)
             video_clips.append(c)
 
-    main_v = concatenate_videoclips(video_clips, method="compose")
+    # --- NEW CROSSFADE COMPOSITING LOGIC ---
+    transitions = []
+    for i, clip in enumerate(video_clips):
+        if i > 0: transitions.append(clip.crossfadein(0.5))
+        else: transitions.append(clip)
+            
+    main_v = concatenate_videoclips(transitions, padding=-0.5, method="compose")
 
     logger.info("📝 Applying Kinetic Typography & Scrubbers...")
     subs = []
