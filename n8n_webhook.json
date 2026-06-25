@@ -1,0 +1,74 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "8c0464dc-e8f8-4d15-a499-eab7cfe1f601",
+        "options": {
+          "binaryPropertyName": "file"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c634e3a3-c2ee-4bcd-9b83-798a230a0269",
+      "name": "Webhook",
+      "webhookId": "8c0464dc-e8f8-4d15-a499-eab7cfe1f601"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/me/videos",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "source",
+              "inputDataFieldName": "file0"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Webhook').item.json.body.description }}"
+            },
+            {
+              "name": "access_token",
+              "value": "EAANkpF8q6pMBRklQHTZCr14cyoZBi1hh7WC1IvjAHuFrNYDGfbVYvjf4TrRkKD6PaN7d9wZBqTSZCx0jVOeKbTwrZADy9uGsI6VROVQGnacqmFxE92u5BsPHroOIO32xhvyQHAyxtJCAyUwaU5e6GtnULZCF76j86xxoPFPb0TZCgowni2ZB0oE4Kxv1vuShabIZAKpOq"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "366c7eae-ce2b-4cb5-b427-ed21c6bf47d6",
+      "name": "HTTP Request"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1f06ee4187ea7722ca65c6cc978d0f7a103fb7577861ef2d158a4af30c4818da"
+  }
+}
